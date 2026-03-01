@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.eggs/
+*.log
+
+# macOS resource forks (AppleDouble)
+._*
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Models (large binary files)
+*.pt
+*.onnx
+*.weights
+
+# Test artifacts
+.playwright-mcp/
+
+# Docker
+*.override.yml
+
+# VS Code
+.vscode/settings.json
+.vscode/launch.json
+
+# Jupyter
+*.ipynb_checkpoints/

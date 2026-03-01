@@ -1,0 +1,33 @@
+# ============================================================
+# requirements.txt — Python backend dependencies
+# ============================================================
+
+# Vision Agents SDK
+vision-agents[getstream,gemini,deepgram,elevenlabs,ultralytics]>=0.3.8
+
+# LLMs
+anthropic>=0.34.0
+google-genai>=1.0.0
+
+# Database
+sqlalchemy[asyncio]>=2.0.32
+asyncpg>=0.29.0
+alembic>=1.13.2
+motor>=3.5.1          # MongoDB (optional — safe to leave installed)
+
+# Settings + env
+pydantic-settings>=2.4.0
+python-dotenv>=1.0.1
+
+# Vision
+mediapipe>=0.10.14
+opencv-python-headless>=4.10.0
+numpy>=1.26.4
+ultralytics>=8.2.57   # YOLO11
+
+# Async utilities
+asyncio-throttle>=1.0.2
+
+# Dev
+uvicorn[standard]>=0.30.6
+fastapi>=0.112.2      # for token endpoint + health check
