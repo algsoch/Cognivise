@@ -278,6 +278,14 @@ flowchart TD
 
 ## 🎬 Demo
 
+<div align="center">
+
+[![Watch Demo on YouTube](https://img.shields.io/badge/YouTube-Watch%20Demo-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtu.be/_KStiF5v0go)
+
+▶️ **[https://youtu.be/_KStiF5v0go](https://youtu.be/_KStiF5v0go)**
+
+</div>
+
 ### Session Flow
 
 ```
