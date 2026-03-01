@@ -81,53 +81,164 @@ Think of it as a **1-on-1 human tutor**, available 24/7, at zero cost.
 
 ## 🏗 Architecture
 
+<div align="center">
+
+<!-- ═══════════════════  LAYER 1 — BROWSER  ═══════════════════ -->
+
+<table>
+<tr>
+<td align="center" colspan="3">
+<img src="https://img.shields.io/badge/LEARNER'S%20BROWSER-React%2018%20%2B%20Vite-61DAFB?style=for-the-badge&logo=react&logoColor=black"/>
+</td>
+</tr>
+<tr>
+<td align="center" width="33%">
+
+**📹 Webcam Feed**
+
+`getUserMedia`\
+`WebRTC track`\
+👤 Learner face
+
+</td>
+<td align="center" width="33%">
+
+**📺 Learning Content**
+
+`YouTube iframe`\
+`Screen Share`\
+`getDisplayMedia`
+
+</td>
+<td align="center" width="33%">
+
+**📊 Live Metrics Panel**
+
+`Engagement score`\
+`Attention waveform`\
+`Mastery tracker`
+
+</td>
+</tr>
+</table>
+
+<br/>
+
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        LEARNER'S BROWSER                            │
-│                                                                     │
-│  ┌─────────────┐    ┌──────────────────┐    ┌──────────────────┐   │
-│  │  Webcam     │    │  Lecture Content  │    │  Metrics Panel   │   │
-│  │  getUserM.  │    │  YouTube / Upload │    │  Engagement      │   │
-│  │             │    │  Screen Share     │    │  Attention       │   │
-│  │  👤 Learner │    │                  │    │  Cognitive Load  │   │
-│  └──────┬──────┘    └────────┬─────────┘    │  Mastery Tracker │   │
-│         │ WebRTC / WebSocket  │              └──────────────────┘   │
-└─────────┼────────────────────┼─────────────────────────────────────┘
-          │                    │
-          ▼                    ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                   FASTAPI BACKEND  (port 8001)                      │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │              Vision Agents SDK   (Stream Edge)               │   │
-│  │                                                              │   │
-│  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────┐ │   │
-│  │  │  Engagement  │ │  Attention   │ │  CognitiveLoad       │ │   │
-│  │  │  Processor   │ │  Processor   │ │  Processor           │ │   │
-│  │  │  FaceMesh    │ │  Focus +     │ │  Latency + Errors    │ │   │
-│  │  │  EAR / Gaze  │ │  Distract.   │ │  + Confusion NLP     │ │   │
-│  │  └──────┬───────┘ └──────┬───────┘ └──────────┬───────────┘ │   │
-│  │         └────────────────┴─────────────────────┘             │   │
-│  │                         ▼                                    │   │
-│  │  ┌──────────────────────────────────────────────────────┐    │   │
-│  │  │              Reasoning Loop  (15s cycle)              │    │   │
-│  │  │   LearningStateSnapshot → InterventionType decision   │    │   │
-│  │  │   Gemini Flash (questions + eval + feedback)           │    │   │
-│  │  └──────────────────────┬───────────────────────────────┘    │   │
-│  │                         │                                    │   │
-│  │  ┌──────────────────────▼───────────────────────────────┐    │   │
-│  │  │         Gemini Realtime  (voice + video, WebRTC)      │    │   │
-│  │  │         Agent name: Algsoch  │  Speaks with learner    │    │   │
-│  │  └──────────────────────────────────────────────────────┘    │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  ┌───────────────────┐    ┌─────────────────────────────────────┐  │
-│  │  PostgreSQL 16    │    │  MetricsBroadcaster                 │  │
-│  │  Async SQLAlch.   │    │  WebSocket → Frontend (50ms)        │  │
-│  │  Session/Mastery  │    │  Scores + speech + interventions    │  │
-│  └───────────────────┘    └─────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────┘
+          │ WebRTC (audio + video)        │ WebSocket (50ms metrics push)
+          ▼                              ▼
 ```
+
+<!-- ═══════════════════  LAYER 2 — FASTAPI BACKEND  ═══════════════════ -->
+
+<table>
+<tr>
+<td align="center" colspan="3">
+<img src="https://img.shields.io/badge/FASTAPI%20BACKEND-port%208001-009688?style=for-the-badge&logo=fastapi&logoColor=white"/>
+</td>
+</tr>
+<tr>
+<td align="center" colspan="3">
+<img src="https://img.shields.io/badge/Vision%20Agents%20SDK-Stream%20Edge%20WebRTC-8b5cf6?style=for-the-badge&logo=google&logoColor=white"/>
+</td>
+</tr>
+<tr>
+<td align="center" width="33%">
+
+**👁 EngagementProcessor**
+
+`MediaPipe FaceMesh`\
+`EAR blink rate`\
+`Iris gaze estimation`\
+`Restlessness score`
+
+</td>
+<td align="center" width="33%">
+
+**🎯 AttentionProcessor**
+
+`Focus duration timer`\
+`Distraction detection`\
+`Debounced events`\
+`Score 0–100`
+
+</td>
+<td align="center" width="33%">
+
+**🧠 CognitiveLoadProcessor**
+
+`Response latency`\
+`Rolling error window`\
+`Confusion NLP markers`\
+`YOLO11 pose posture`
+
+</td>
+</tr>
+</table>
+
+<br/>
+
+```
+                    └──────────────────────────────┘
+                                  │  LearningStateSnapshot
+                                  ▼
+```
+
+<!-- ═══════════════════  LAYER 3 — REASONING LOOP  ═══════════════════ -->
+
+<table>
+<tr>
+<td align="center">
+<img src="https://img.shields.io/badge/Reasoning%20Loop-15s%20Cognitive%20Cycle-f59e0b?style=for-the-badge&logo=clockify&logoColor=white"/>
+</td>
+</tr>
+<tr>
+<td align="center">
+
+`focused` → **Active Recall** &nbsp;|&nbsp; `distracted` → **Check-in** &nbsp;|&nbsp; `overloaded` → **Simplify**
+
+`struggling` → **Break it down** &nbsp;|&nbsp; `mastering` → **Increase difficulty**
+
+<br/>
+
+<img src="https://img.shields.io/badge/Gemini%202.5%20Flash-Question%20Gen%20%2B%20Eval-4285F4?style=flat-square&logo=google&logoColor=white"/>
+<img src="https://img.shields.io/badge/Gemini%20Realtime-Voice%20%2B%20Video%20Agent-34a853?style=flat-square&logo=google&logoColor=white"/>
+
+</td>
+</tr>
+</table>
+
+<br/>
+
+```
+              │ Voice + Video (WebRTC)           │ Intervention decision
+              ▼                                 ▼
+```
+
+<!-- ═══════════════════  LAYER 4 — AGENT + DB  ═══════════════════ -->
+
+<table>
+<tr>
+<td align="center" width="50%">
+<img src="https://img.shields.io/badge/Algsoch%20Agent-Gemini%20Realtime%20Voice-8b5cf6?style=for-the-badge&logo=google&logoColor=white"/>
+
+`Speaks to learner in real time`\
+`Watches webcam + screen`\
+`Name: Algsoch`
+
+</td>
+<td align="center" width="50%">
+<img src="https://img.shields.io/badge/PostgreSQL%2016-Session%20%2B%20Mastery-336791?style=for-the-badge&logo=postgresql&logoColor=white"/>
+
+`Async SQLAlchemy`\
+`Topic mastery scores`\
+`Spaced repetition log`
+
+</td>
+</tr>
+</table>
+
+</div>
 
 ### SDK Alignment — Vision Agents Primitives
 
@@ -509,16 +620,47 @@ Pull requests are welcome! Open an issue first for major changes.
 
 <div align="center">
 
-<br/>
+---
+
+### 👨‍💻 Built by
 
 <br/>
 
-<img src="https://img.shields.io/badge/Made_with-Vision_Agents_SDK-8b5cf6?style=for-the-badge&logo=google&logoColor=white"/>
-<img src="https://img.shields.io/badge/Powered_by-Gemini_Realtime-4285F4?style=for-the-badge&logo=google&logoColor=white"/>
-<img src="https://img.shields.io/badge/Built_by-algsoch-22c55e?style=for-the-badge&logo=github&logoColor=white"/>
+<img src="https://avatars.githubusercontent.com/algsoch" width="90" style="border-radius:50%" />
+
+<br/>
+
+**Vicky Kumar**
+
+<a href="https://github.com/algsoch">
+  <img src="https://img.shields.io/badge/GitHub-algsoch-181717?style=for-the-badge&logo=github&logoColor=white"/>
+</a>
+&nbsp;
+<a href="mailto:kandpdimagine@gmail.com">
+  <img src="https://img.shields.io/badge/Email-kandpdimagine%40gmail.com-EA4335?style=for-the-badge&logo=gmail&logoColor=white"/>
+</a>
 
 <br/><br/>
 
-[⭐ Star this repo](https://github.com/algsoch/Cognivise) &nbsp;·&nbsp; [🐛 Report a bug](https://github.com/algsoch/Cognivise/issues) &nbsp;·&nbsp; [💡 Request a feature](https://github.com/algsoch/Cognivise/issues)
+<img src="https://img.shields.io/badge/Made_with-Vision_Agents_SDK-8b5cf6?style=for-the-badge&logo=google&logoColor=white"/>
+&nbsp;
+<img src="https://img.shields.io/badge/Powered_by-Gemini_Realtime-4285F4?style=for-the-badge&logo=google&logoColor=white"/>
+&nbsp;
+<img src="https://img.shields.io/badge/License-Apache_2.0-22c55e?style=for-the-badge"/>
+
+<br/><br/>
+
+*Because everyone deserves a tutor who never gets tired.*
+
+<br/>
+
+[⭐ Star](https://github.com/algsoch/Cognivise) &nbsp;·&nbsp;
+[🐛 Bug report](https://github.com/algsoch/Cognivise/issues/new?labels=bug) &nbsp;·&nbsp;
+[💡 Feature request](https://github.com/algsoch/Cognivise/issues/new?labels=enhancement) &nbsp;·&nbsp;
+[📬 Contact](mailto:kandpdimagine@gmail.com)
+
+<br/>
+
+<sub>© 2026 <a href="https://github.com/algsoch">algsoch</a> · Apache 2.0 License</sub>
 
 </div>
