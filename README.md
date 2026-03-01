@@ -81,164 +81,80 @@ Think of it as a **1-on-1 human tutor**, available 24/7, at zero cost.
 
 ## 🏗 Architecture
 
-<div align="center">
+```mermaid
+flowchart TD
+    %% ─── BROWSER LAYER ───────────────────────────────────────────
+    subgraph BROWSER["🖥  LEARNER'S BROWSER  —  React 18 + Vite"]
+        direction LR
+        CAM["📹 Webcam\ngetUserMedia · WebRTC track"]
+        CONTENT["📺 Learning Content\nYouTube · Screen Share · Upload"]
+        PANEL["📊 Metrics Panel\nEngagement · Attention\nCognitive Load · Mastery"]
+    end
 
-<!-- ═══════════════════  LAYER 1 — BROWSER  ═══════════════════ -->
+    %% ─── BACKEND + VISION AGENTS SDK ────────────────────────────
+    subgraph BACKEND["⚙️  FASTAPI BACKEND  —  port 8001"]
+        subgraph VADK["Vision Agents SDK  ·  Stream Edge WebRTC"]
+            EP["👁 EngagementProcessor\nFaceMesh · EAR blink\nIris gaze · Restlessness"]
+            AP["🎯 AttentionProcessor\nFocus timer · Distraction\nDebounced events"]
+            CP["🧠 CognitiveLoadProcessor\nResponse latency\nError rate · Confusion NLP\nYOLO11 pose posture"]
+        end
 
-<table>
-<tr>
-<td align="center" colspan="3">
-<img src="https://img.shields.io/badge/LEARNER'S%20BROWSER-React%2018%20%2B%20Vite-61DAFB?style=for-the-badge&logo=react&logoColor=black"/>
-</td>
-</tr>
-<tr>
-<td align="center" width="33%">
+        SNAP["📸 LearningStateSnapshot\nfocused · distracted · overloaded\nstruggling · mastering · neutral"]
 
-**📹 Webcam Feed**
+        subgraph LOOP["🔄  Reasoning Loop  —  15 s cognitive cycle"]
+            STATE["🗺 State Classifier\nSignal fusion → InterventionType"]
+            GF["✨ Gemini 2.5 Flash\nQuestion generation\nAnswer evaluation · Feedback"]
+        end
 
-`getUserMedia`\
-`WebRTC track`\
-👤 Learner face
+        subgraph AGENTBOX["🤖  Algsoch Agent"]
+            GR["🎙 Gemini Realtime\nVoice + Video · WebRTC\nSpeaks with learner in real time"]
+        end
 
-</td>
-<td align="center" width="33%">
+        BC["📡 MetricsBroadcaster\nWebSocket push → 50 ms"]
+        PG["🐘 PostgreSQL 16\nSession · Topic mastery\nSpaced repetition log"]
+    end
 
-**📺 Learning Content**
+    %% ─── CONNECTIONS ────────────────────────────────────────────
+    CAM      -->|"WebRTC audio + video"| VADK
+    CONTENT  -->|"screen frames every 30 s"| VADK
 
-`YouTube iframe`\
-`Screen Share`\
-`getDisplayMedia`
+    EP --> SNAP
+    AP --> SNAP
+    CP --> SNAP
 
-</td>
-<td align="center" width="33%">
+    SNAP --> STATE
+    STATE -->|"intervention decision"| GF
+    GF    -->|"question / prompt"| GR
 
-**📊 Live Metrics Panel**
+    GR    -->|"voice response"| CAM
+    GR    -->|"agent speech + action"| BC
+    GF    -->|"mastery update"| PG
+    GR    -->|"session log"| PG
 
-`Engagement score`\
-`Attention waveform`\
-`Mastery tracker`
+    EP --> BC
+    AP --> BC
+    CP --> BC
+    LOOP --> BC
 
-</td>
-</tr>
-</table>
+    BC -->|"WebSocket 50 ms"| PANEL
 
-<br/>
+    %% ─── STYLES ─────────────────────────────────────────────────
+    classDef browser  fill:#1e3a5f,stroke:#61DAFB,color:#e2e8f0,rx:8
+    classDef proc     fill:#1e1b4b,stroke:#8b5cf6,color:#e2e8f0,rx:6
+    classDef snap     fill:#1c1917,stroke:#f59e0b,color:#fbbf24,rx:6
+    classDef loop     fill:#14292b,stroke:#34d399,color:#e2e8f0,rx:6
+    classDef agent    fill:#1a1233,stroke:#a78bfa,color:#e2e8f0,rx:6
+    classDef infra    fill:#1e2535,stroke:#60a5fa,color:#e2e8f0,rx:6
+    classDef db       fill:#1e293b,stroke:#4ade80,color:#e2e8f0,rx:6
 
+    class CAM,CONTENT,PANEL browser
+    class EP,AP,CP proc
+    class SNAP snap
+    class STATE,GF loop
+    class GR agent
+    class BC infra
+    class PG db
 ```
-          │ WebRTC (audio + video)        │ WebSocket (50ms metrics push)
-          ▼                              ▼
-```
-
-<!-- ═══════════════════  LAYER 2 — FASTAPI BACKEND  ═══════════════════ -->
-
-<table>
-<tr>
-<td align="center" colspan="3">
-<img src="https://img.shields.io/badge/FASTAPI%20BACKEND-port%208001-009688?style=for-the-badge&logo=fastapi&logoColor=white"/>
-</td>
-</tr>
-<tr>
-<td align="center" colspan="3">
-<img src="https://img.shields.io/badge/Vision%20Agents%20SDK-Stream%20Edge%20WebRTC-8b5cf6?style=for-the-badge&logo=google&logoColor=white"/>
-</td>
-</tr>
-<tr>
-<td align="center" width="33%">
-
-**👁 EngagementProcessor**
-
-`MediaPipe FaceMesh`\
-`EAR blink rate`\
-`Iris gaze estimation`\
-`Restlessness score`
-
-</td>
-<td align="center" width="33%">
-
-**🎯 AttentionProcessor**
-
-`Focus duration timer`\
-`Distraction detection`\
-`Debounced events`\
-`Score 0–100`
-
-</td>
-<td align="center" width="33%">
-
-**🧠 CognitiveLoadProcessor**
-
-`Response latency`\
-`Rolling error window`\
-`Confusion NLP markers`\
-`YOLO11 pose posture`
-
-</td>
-</tr>
-</table>
-
-<br/>
-
-```
-                    └──────────────────────────────┘
-                                  │  LearningStateSnapshot
-                                  ▼
-```
-
-<!-- ═══════════════════  LAYER 3 — REASONING LOOP  ═══════════════════ -->
-
-<table>
-<tr>
-<td align="center">
-<img src="https://img.shields.io/badge/Reasoning%20Loop-15s%20Cognitive%20Cycle-f59e0b?style=for-the-badge&logo=clockify&logoColor=white"/>
-</td>
-</tr>
-<tr>
-<td align="center">
-
-`focused` → **Active Recall** &nbsp;|&nbsp; `distracted` → **Check-in** &nbsp;|&nbsp; `overloaded` → **Simplify**
-
-`struggling` → **Break it down** &nbsp;|&nbsp; `mastering` → **Increase difficulty**
-
-<br/>
-
-<img src="https://img.shields.io/badge/Gemini%202.5%20Flash-Question%20Gen%20%2B%20Eval-4285F4?style=flat-square&logo=google&logoColor=white"/>
-<img src="https://img.shields.io/badge/Gemini%20Realtime-Voice%20%2B%20Video%20Agent-34a853?style=flat-square&logo=google&logoColor=white"/>
-
-</td>
-</tr>
-</table>
-
-<br/>
-
-```
-              │ Voice + Video (WebRTC)           │ Intervention decision
-              ▼                                 ▼
-```
-
-<!-- ═══════════════════  LAYER 4 — AGENT + DB  ═══════════════════ -->
-
-<table>
-<tr>
-<td align="center" width="50%">
-<img src="https://img.shields.io/badge/Algsoch%20Agent-Gemini%20Realtime%20Voice-8b5cf6?style=for-the-badge&logo=google&logoColor=white"/>
-
-`Speaks to learner in real time`\
-`Watches webcam + screen`\
-`Name: Algsoch`
-
-</td>
-<td align="center" width="50%">
-<img src="https://img.shields.io/badge/PostgreSQL%2016-Session%20%2B%20Mastery-336791?style=for-the-badge&logo=postgresql&logoColor=white"/>
-
-`Async SQLAlchemy`\
-`Topic mastery scores`\
-`Spaced repetition log`
-
-</td>
-</tr>
-</table>
-
-</div>
 
 ### SDK Alignment — Vision Agents Primitives
 
