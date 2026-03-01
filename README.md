@@ -112,7 +112,7 @@ Think of it as a **1-on-1 human tutor**, available 24/7, at zero cost.
 │  │  ┌──────────────────────────────────────────────────────┐    │   │
 │  │  │              Reasoning Loop  (15s cycle)              │    │   │
 │  │  │   LearningStateSnapshot → InterventionType decision   │    │   │
-│  │  │   Gemini Flash (questions) + Claude Haiku (eval)      │    │   │
+│  │  │   Gemini Flash (questions + eval + feedback)           │    │   │
 │  │  └──────────────────────┬───────────────────────────────┘    │   │
 │  │                         │                                    │   │
 │  │  ┌──────────────────────▼───────────────────────────────┐    │   │
@@ -233,7 +233,7 @@ Think of it as a **1-on-1 human tutor**, available 24/7, at zero cost.
 | **Agent SDK** | Vision Agents 0.3.x | WebRTC + processor pipeline + event bus |
 | **Edge / WebRTC** | Stream Video (getstream.io) | Real-time audio/video transport |
 | **Primary LLM** | Gemini 2.5 Flash Realtime | Voice + video real-time conversation |
-| **Reasoning Brain** | Claude 3.5 Haiku | Question generation + answer evaluation |
+| **Reasoning Brain** | Gemini 2.5 Flash | Question generation + answer evaluation |
 | **Vision** | MediaPipe FaceMesh + YOLO11 Pose | Face landmarks, blink, gaze, posture |
 | **STT** | Gemini Realtime VAD | Learner speech transcription |
 | **TTS** | Gemini Realtime + Browser SpeechSynthesis | Agent voice (dual-layer fallback) |
@@ -298,7 +298,6 @@ Think of it as a **1-on-1 human tutor**, available 24/7, at zero cost.
 - PostgreSQL **16** running locally
 - [Stream account](https://getstream.io) *(free tier: 333k min/month)*
 - Google AI Studio API key *(Gemini)*
-- Anthropic API key *(Claude — optional, Gemini used as fallback)*
 
 ### 1 — Clone
 
@@ -322,9 +321,6 @@ STREAM_API_SECRET=your_stream_secret
 
 # Google AI (Gemini)
 GOOGLE_API_KEY=your_gemini_key
-
-# Anthropic (Claude) — optional
-ANTHROPIC_API_KEY=your_claude_key
 
 # PostgreSQL
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/vision_agent
@@ -379,7 +375,7 @@ Cognivise/
 │       │   └── cognitive_load_processor.py  ← Latency + error + confusion NLP
 │       ├── llm/
 │       │   ├── gemini_engine.py             ← Question gen + topic extraction
-│       │   └── claude_engine.py             ← Answer evaluation + feedback
+│       │   └── claude_engine.py             ← Legacy fallback (Gemini handles eval)
 │       ├── api/
 │       │   ├── server.py                    ← FastAPI routes (/join, /session/config)
 │       │   └── broadcaster.py               ← WebSocket metrics push to frontend
@@ -421,7 +417,7 @@ Cognivise/
 | Vision processor FPS | 10 fps (100ms batches) |
 | Reasoning cycle | 15s (configurable) |
 | Gemini Flash question gen | ~400ms |
-| Claude answer evaluation | ~300–600ms |
+| Gemini answer evaluation | ~400–700ms |
 | Gemini Realtime voice round-trip | < 1s |
 | WebSocket metric push to frontend | < 50ms |
 | SpeechSynthesis TTS fallback | ~0ms (browser native) |
@@ -515,10 +511,6 @@ Pull requests are welcome! Open an issue first for major changes.
 
 <br/>
 
-**Built with ❤️ for learners everywhere**
-
-*Because everyone deserves a tutor who never gets tired.*
-
 <br/>
 
 <img src="https://img.shields.io/badge/Made_with-Vision_Agents_SDK-8b5cf6?style=for-the-badge&logo=google&logoColor=white"/>
@@ -530,257 +522,3 @@ Pull requests are welcome! Open an issue first for major changes.
 [⭐ Star this repo](https://github.com/algsoch/Cognivise) &nbsp;·&nbsp; [🐛 Report a bug](https://github.com/algsoch/Cognivise/issues) &nbsp;·&nbsp; [💡 Request a feature](https://github.com/algsoch/Cognivise/issues)
 
 </div>
-
-
----
-
-## Architecture
-
-```
-Video/Audio Stream (WebRTC via Stream Edge)
-        ↓
-Custom Processors (engagement + attention + behavior + cognitive load)
-        ↓
-Agent Reasoning Loop (Claude + Gemini Realtime)
-        ↓
-Adaptive Voice/Text Interventions
-        ↓
-Learning Memory + Mastery Model (PostgreSQL)
-```
-
-### SDK Alignment
-
-Built strictly on Vision Agents patterns:
-
-| Component | Vision Agents Primitive |
-|---|---|
-| EngagementProcessor | `VideoProcessor` with `add_frame_handler` |
-| AttentionProcessor | `VideoProcessor` + event subscription |
-| BehaviorProcessor | `VideoProcessor` + YOLO11 pose |
-| CognitiveLoadProcessor | Event-driven `VideoProcessor` |
-| ReasoningLoop | Background task attached to `Agent` |
-| LLM backbone | `gemini.Realtime(fps=3)` for voice+video |
-| Memory | Stream Chat built-in + PostgreSQL |
-
----
-
-## Feature Modules
-
-### 1. Engagement Estimation
-- MediaPipe FaceMesh face detection
-- Eye-Aspect-Ratio (EAR) blink rate tracking
-- Iris-landmark gaze estimation
-- Head pose (yaw confidence)
-- Frame-delta restlessness score
-- **Output:** `engagement_score` (0–100)
-
-### 2. Attention Tracking
-- Continuous focus duration timing
-- Distraction event detection + debouncing
-- **Output:** `attention_score` (0–100)
-
-### 3. Cognitive Load Detection
-- Response latency measurement
-- Rolling error window (last N answers)
-- Confusion language marker detection in STT
-- **Output:** `cognitive_load_score` (0–100)
-
-### 4. Learning State Classification
-```
-learning_state = f(attention, engagement, cognitive_load, performance)
-```
-States: `focused | distracted | disengaged | overloaded | mastering | struggling | neutral`
-
-### 5. Adaptive Interventions
-| State | Intervention |
-|---|---|
-| Disengaged | Ask a question |
-| Distracted | Check-in |
-| Overloaded | Simplify explanation |
-| Struggling | Break concept down |
-| Mastering | Increase difficulty |
-| Focused | Active recall |
-
-### 6. Active Recall
-- Claude generates questions calibrated to mastery level
-- Semantic answer evaluation (not keyword matching)
-- Corrective feedback with encouragement
-
-### 7. Learning Memory
-- Topic-level mastery scores (0–100)
-- Spaced repetition scheduling
-- Knowledge graph per user
-- Persistent via PostgreSQL
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Agent SDK | Vision Agents 0.3.x |
-| Edge / WebRTC | Stream Video (getstream.io) |
-| Primary LLM | Gemini Realtime (voice+video) |
-| Reasoning Brain | Claude claude-3-5-haiku (structured JSON) |
-| Vision | MediaPipe FaceMesh + YOLO11 Pose |
-| STT | Deepgram Nova 3 |
-| TTS | ElevenLabs |
-| Primary DB | PostgreSQL 16 (SQLAlchemy async) |
-| Optional DB | MongoDB 7 (motor) |
-| Frontend | React 18 + Vite + Tailwind |
-| Charts | Recharts |
-| State | Zustand |
-| Animations | Framer Motion |
-
----
-
-## Setup
-
-### Prerequisites
-- Python 3.12
-- Node 20
-- PostgreSQL 16 running locally
-- [Stream account](https://getstream.io) (free tier: 333k minutes/month)
-- Anthropic API key
-- Google AI Studio API key
-
-### 1. Clone & configure
-
-```bash
-git clone <repo>
-cd intelligent_learn
-cp .env .env.local
-# Fill in all API keys in .env
-```
-
-### 2. Install Python deps
-
-```bash
-pip install uv
-uv pip install -r requirements.txt
-```
-
-### 3. Create PostgreSQL database
-
-```bash
-createdb vision_agent
-```
-
-### 4. Run backend
-
-```bash
-uv run backend/main.py run
-# Or HTTP server mode:
-uv run backend/main.py serve
-```
-
-### 5. Run frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open http://localhost:3000
-
-### Docker (optional)
-
-```bash
-docker compose up postgres
-# Then run backend locally for development
-```
-
----
-
-## File Structure
-
-```
-intelligent_learn/
-├── backend/
-│   ├── app/
-│   │   ├── agent/
-│   │   │   ├── main_agent.py       ← Vision Agents Agent + call handler
-│   │   │   ├── reasoning_loop.py   ← Closed-loop intervention engine
-│   │   │   └── memory_manager.py   ← PostgreSQL + MongoDB persistence
-│   │   ├── processors/
-│   │   │   ├── engagement_processor.py   ← MediaPipe face + EAR + gaze
-│   │   │   ├── attention_processor.py    ← Focus duration tracking
-│   │   │   ├── behavior_processor.py     ← YOLO11 pose + posture
-│   │   │   └── cognitive_load_processor.py ← Response latency + errors
-│   │   ├── vision/
-│   │   │   ├── face_tracking.py
-│   │   │   ├── gaze_detection.py
-│   │   │   └── emotion_estimator.py
-│   │   ├── llm/
-│   │   │   ├── claude_engine.py    ← Question gen + answer eval
-│   │   │   └── gemini_engine.py    ← Frame analysis + multimodal
-│   │   ├── db/
-│   │   │   ├── postgres.py         ← Async SQLAlchemy schema
-│   │   │   └── mongodb_optional.py ← Optional unstructured store
-│   │   ├── models/
-│   │   │   ├── learning_state.py   ← Signal dataclasses + state machine
-│   │   │   └── user_session.py     ← Session + mastery knowledge graph
-│   │   └── config/
-│   │       └── settings.py         ← pydantic-settings from .env
-│   └── main.py                     ← Entry point (Vision Agents Runner)
-├── frontend/
-│   └── src/
-│       ├── pages/
-│       │   ├── LandingPage.jsx
-│       │   ├── SessionPage.jsx     ← Main learning interface
-│       │   └── DashboardPage.jsx   ← Post-session analytics
-│       ├── components/
-│       │   ├── EngagementMeter.jsx
-│       │   ├── AttentionWaveform.jsx
-│       │   ├── CognitiveLoadIndicator.jsx
-│       │   ├── MasteryTracker.jsx
-│       │   ├── InterventionFeed.jsx
-│       │   ├── LearnerStateTag.jsx
-│       │   └── AgentStatusBar.jsx
-│       └── hooks/
-│           ├── useSessionStore.js  ← Zustand global state
-│           └── useStreamCall.js    ← Stream WebRTC hook
-├── .env
-├── requirements.txt
-├── docker-compose.yml
-└── README.md
-```
-
----
-
-## Demo Strategy (Judges)
-
-**Show in this order:**
-
-1. Open session page — metrics panels visible immediately
-2. Look at camera → engagement score rises
-3. Look away → distraction detected → agent asks "Are you still with me?"
-4. Answer a question correctly → mastery score rises
-5. Deliberately hesitate → cognitive load increases → agent simplifies
-6. End session → dashboard shows full learning profile (radar chart, trend, mastery)
-
-**Key talking points:**
-- Processors run at 10fps, agent decision loop every 15s — closed loop
-- Zero transcripts needed — vision understands without captions
-- Claude evaluates answers semantically, not keyword matching
-- Mastery tracked per topic with spaced repetition
-
----
-
-## Latency Design
-
-| Hop | Target |
-|---|---|
-| WebRTC join | ~500ms (Stream edge) |
-| Audio/video | <30ms (WebRTC) |
-| Processor FPS | 10fps (100ms batches) |
-| Intervention cycle | 15s (configurable) |
-| Claude API (Haiku) | ~300–600ms |
-| Gemini Realtime | <1s voice round-trip |
-
----
-
-## License
-
-Apache 2.0
