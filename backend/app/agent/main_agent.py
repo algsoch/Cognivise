@@ -40,7 +40,7 @@ from vision_agents.core.llm.events import (
     RealtimeAgentSpeechTranscriptionEvent,
 )
 from backend.app.agent.memory_manager import MemoryManager
-from backend.app.agent.reasoning_loop import ReasoningLoop
+from backend.app.agent.reasoning_loop import ReasoningLoop, _is_generic_label
 from backend.app.llm.claude_engine import ClaudeEngine
 from backend.app.llm.gemini_engine import GeminiEngine
 from backend.app.api.broadcaster import MetricsBroadcaster
@@ -318,13 +318,18 @@ async def join_call(
                         try:
                             from backend.app.api.server import get_pending_session_config
                             _cfg = get_pending_session_config()
-                            if not _live_topic:
-                                _live_topic = _cfg.pop("topic", None) or None
-                                if _live_topic:
+                            if not _live_topic or _is_generic_label(_live_topic):
+                                _candidate = _cfg.pop("topic", None) or None
+                                if not _is_generic_label(_candidate):
+                                    _live_topic = _candidate
                                     session.current_topic = _live_topic
                             _learner_name = _cfg.get("user_name") or None
                         except Exception:
                             pass
+
+                        # Treat generic mode labels as "no topic known yet"
+                        if _is_generic_label(_live_topic):
+                            _live_topic = None
 
                         # Personal greeting: use learner's real name if available
                         _name_part = f"{_learner_name}! " if _learner_name else "! "

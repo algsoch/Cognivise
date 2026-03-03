@@ -39,6 +39,22 @@ from backend.app.api.broadcaster import MetricsBroadcaster
 
 logger = logging.getLogger(__name__)
 
+# Labels sent by the frontend that describe the *mode* of content delivery,
+# not the actual learning topic. We must never use these as topics for
+# questions, greetings, or mastery tracking.
+_GENERIC_LABELS: frozenset[str] = frozenset({
+    "screen share", "screenshare", "youtube", "upload",
+    "video", "screen", "webcam", "camera", "stream",
+    "presentation", "slide", "unknown", "none", "",
+})
+
+
+def _is_generic_label(label: str | None) -> bool:
+    """Return True if *label* is a content-mode name rather than a real topic."""
+    if not label:
+        return True
+    return label.strip().lower() in _GENERIC_LABELS
+
 
 class ReasoningLoop:
     """
@@ -130,14 +146,19 @@ class ReasoningLoop:
 
         # Sync topic from session config if not yet set (user may have posted it
         # via /api/session/config after the agent already joined)
-        if not session.current_topic:
+        if not session.current_topic or _is_generic_label(session.current_topic):
             try:
                 from backend.app.api.server import get_pending_session_config
                 cfg = get_pending_session_config()
                 _t = cfg.pop("topic", None)   # pop to avoid stale topic leaking into next session
+                if _is_generic_label(_t):
+                    _t = None
                 if not _t:
                     # Fall back to content_label (e.g. YouTube video title or filename)
-                    _t = cfg.get("content_label") or None
+                    # but only if it is a real topic, not a generic mode label
+                    _candidate = cfg.get("content_label")
+                    if not _is_generic_label(_candidate):
+                        _t = _candidate
                 if _t:
                     session.current_topic = _t
                     logger.info("Topic set from session config: %s", session.current_topic)
@@ -156,14 +177,18 @@ class ReasoningLoop:
         if self._eng_processor and (_now - self._last_screen_analysis_at) >= 30.0:
             frame = getattr(self._eng_processor, "latest_frame", None)
             if frame is not None:
-                # 1. Extract topic from what's on screen
+                # 1. Extract topic from what's on screen via Gemini Vision
+                # This always takes priority over generic content_label values.
                 try:
                     topic_from_screen = await self._gemini.extract_topic_from_slide(frame)
-                    if topic_from_screen:
+                    if topic_from_screen and not _is_generic_label(topic_from_screen):
                         self._last_screen_topic = topic_from_screen
-                        if not session.current_topic:
+                        # Override current_topic if it is absent OR a generic label
+                        if not session.current_topic or _is_generic_label(session.current_topic):
                             session.current_topic = topic_from_screen
-                            logger.info("Topic auto-detected from screen: %s", topic_from_screen)
+                            logger.info("Topic auto-detected from screen content: %s", topic_from_screen)
+                            # Broadcast updated topic immediately
+                            MetricsBroadcaster.instance().push({"current_topic": topic_from_screen})
                 except Exception as _exc:
                     logger.debug("Screen topic extraction failed: %s", _exc)
 
@@ -284,7 +309,15 @@ class ReasoningLoop:
         self, snap: LearningStateSnapshot, intervention: InterventionType
     ) -> None:
         session = self._session
-        topic = session.current_topic or "the current topic"
+        # Use screen-detected topic if available; fall back to session topic.
+        # If both are generic/absent, defer — asking about "Screen Share" is useless.
+        topic = self._last_screen_topic or session.current_topic
+        if _is_generic_label(topic):
+            logger.info(
+                "Skipping intervention — topic not yet determined (screen analysis pending)"
+            )
+            return
+        topic = topic or "the current topic"
 
         # Broadcast the agent's intent so the frontend activity panel updates immediately
         from backend.app.api.broadcaster import MetricsBroadcaster as _MB

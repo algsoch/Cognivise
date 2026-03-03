@@ -19,6 +19,14 @@ from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
 
+# Keys that carry one-shot event payloads (speech, action) — they must be
+# cleared from _state after each broadcast so reconnecting clients don't
+# receive stale events as if they were fresh.
+_TRANSIENT_KEYS = {
+    "agent_speech", "agent_action", "agent_action_topic",
+    "agent_transcript", "learner_speech",
+}
+
 
 class MetricsBroadcaster:
     """Singleton – use MetricsBroadcaster.instance()."""
@@ -83,9 +91,11 @@ class MetricsBroadcaster:
         with self._clients_lock:
             self._clients.add(ws)
         logger.info("Metrics WebSocket connected — %d clients", len(self._clients))
-        # Send current state immediately
+        # Send current state immediately — but strip transient event fields
+        # so a freshly (re)connected client doesn't replay stale speech/actions.
         try:
-            await ws.send_text(json.dumps(self._state))
+            initial = {k: v for k, v in self._state.items() if k not in _TRANSIENT_KEYS}
+            await ws.send_text(json.dumps(initial))
         except Exception:
             pass
 
@@ -108,6 +118,10 @@ class MetricsBroadcaster:
             with self._clients_lock:
                 for ws in dead:
                     self._clients.discard(ws)
+        # Clear transient event fields so the NEXT client to connect (or the
+        # next reconnect after a 3-second drop) doesn't replay old speech.
+        for key in _TRANSIENT_KEYS:
+            self._state.pop(key, None)
 
     @property
     def state(self) -> Dict[str, Any]:

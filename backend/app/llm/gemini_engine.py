@@ -107,15 +107,26 @@ class GeminiEngine:
 
     async def extract_topic_from_slide(self, frame: np.ndarray) -> Optional[str]:
         """
-        Extract the primary topic / heading from a lecture slide.
+        Extract the primary academic/learning topic from a screen frame.
+        Returns the actual subject being studied, or None if undeterminable.
         """
         prompt = (
-            "This is a lecture slide or screen. "
-            "What is the main topic or concept being taught? "
-            "Reply with just the topic name or phrase (max 10 words)."
+            "You are looking at a learner's screen. "
+            "Identify the specific academic topic or concept they are studying — "
+            "for example: 'Python decorators', 'Newton's laws of motion', "
+            "'photosynthesis', 'gradient descent', 'React hooks', etc. "
+            "Be specific — if you see a video title, document heading, code content, "
+            "or course material, extract the subject from THAT content. "
+            "Do NOT say 'Screen Share', 'YouTube', 'video', 'presentation', or any "
+            "generic mode name — only the actual learning topic. "
+            "If you genuinely cannot determine a learning topic from what's visible, "
+            "reply with exactly: null\n"
+            "Reply with only the topic phrase (max 10 words) or the word null."
         )
         result = await self.analyse_screen_content(frame, prompt)
-        return result if result else None
+        if not result or result.strip().lower() in ("null", "none", "unknown", ""):
+            return None
+        return result.strip()
 
     async def check_learner_confusion_from_face(
         self, face_frame: np.ndarray
