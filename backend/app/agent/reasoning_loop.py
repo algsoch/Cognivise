@@ -91,7 +91,8 @@ class ReasoningLoop:
         self._question_asked_at: Optional[float] = None
 
         # Subscribe to STT transcripts to track learner speech
-        self._last_learner_speech_at: float = 0.0
+        self._last_learner_speech_at: float = time.time()  # init to now so silence check doesn't fire immediately
+        self._last_silence_checkin_at: float = 0.0         # tracks last time silence msg was sent
         self._speech_start_time: float = 0.0
 
         # Screen content analysis state
@@ -202,7 +203,7 @@ class ReasoningLoop:
                             self._stable_frame_since = _now
                         elif (
                             _now - self._stable_frame_since >= 5.0          # stable ≥5s
-                            and _now - self._screen_question_cooldown >= 60.0  # cooldown
+                            and _now - self._screen_question_cooldown >= 30.0  # 30s cooldown
                             and not self._pending_question
                             and (self._last_screen_topic or session.current_topic)
                         ):
@@ -278,17 +279,34 @@ class ReasoningLoop:
             session.session_id, session.user_id, snap
         ))
 
-        # Guard 1: Don't re-ask while a question is still pending an answer (2-min grace)
+        # Guard 1: Don't re-ask while a question is still pending an answer (45s grace)
         # This is THE main fix for repeated same-question spam when learner doesn't respond.
         if self._pending_question and self._question_asked_at:
             since_asked = time.time() - self._question_asked_at
-            if since_asked < 120:   # 2 min — give the learner time to think
-                logger.debug("Pending question unanswered (%.0fs/120s) — skipping intervention", since_asked)
+            if since_asked < 45:   # 45s — give the learner time to respond
+                logger.debug("Pending question unanswered (%.0fs/45s) — skipping intervention", since_asked)
                 return
             else:
                 # Grace period expired — clear the stale question so we can move on
                 logger.info("Pending question timed out after %.0fs — will ask a new one", since_asked)
                 self._pending_question = None
+
+        # Guard 0: Silence check — if learner hasn't spoken in 40s+, fire a check-in
+        # Only fires ONCE per silence period (reset when learner speaks).
+        _silence = time.time() - self._last_learner_speech_at
+        _since_last_silence = time.time() - self._last_silence_checkin_at
+        if _silence > 40.0 and _since_last_silence > 60.0:
+            topic = self._last_screen_topic or session.current_topic
+            silence_msg = (
+                f"You've gone quiet. Are you following so far?"
+                if not topic or _is_generic_label(topic)
+                else f"You've gone quiet — tell me one thing you understand about {topic} so far."
+            )
+            await self._speak(silence_msg)
+            session.last_intervention_at = time.time()
+            self._last_silence_checkin_at = time.time()
+            MetricsBroadcaster.instance().push({"intervention_type": "check_in"})
+            return
 
         # Guard 2: Cooldown between any two interventions
         since_last = time.time() - session.last_intervention_at
@@ -439,6 +457,8 @@ class ReasoningLoop:
         """
         session = self._session
         session.add_transcript(f"Learner: {text}")
+        self._last_learner_speech_at = time.time()  # reset silence timer
+        self._last_silence_checkin_at = 0.0          # allow next silence check fresh
 
         # Send for cognitive load processor (send() is synchronous)
         if self._events:

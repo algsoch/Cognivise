@@ -29,6 +29,18 @@ logger = logging.getLogger(__name__)
 # before (or after) the agent joins, so the agent can pick up the topic.
 _pending_session_config: dict = {}
 
+# Reasoning loop reference — set by main_agent.join_call so typed messages
+# from the frontend can be forwarded directly to handle_learner_answer.
+_active_reasoning_loop = None
+
+def set_reasoning_loop(loop) -> None:
+    global _active_reasoning_loop
+    _active_reasoning_loop = loop
+
+def clear_reasoning_loop() -> None:
+    global _active_reasoning_loop
+    _active_reasoning_loop = None
+
 # ── AgentLauncher reference — set by main.py after launcher is initialised ──
 # The /api/join endpoint uses this to trigger launcher.start_session()
 _launcher = None
@@ -128,12 +140,26 @@ async def ws_metrics(websocket: WebSocket):
     try:
         await broadcaster.connect(websocket)
     except Exception:
-        # Client disconnected before accept could complete — ignore
         return
     try:
         while True:
             try:
-                await asyncio.wait_for(websocket.receive_text(), timeout=30)
+                raw = await asyncio.wait_for(websocket.receive_text(), timeout=30)
+                # Forward typed learner messages to the reasoning loop
+                if raw and raw.strip():
+                    import json as _json
+                    try:
+                        msg = _json.loads(raw)
+                        text = msg.get("learner_message", "").strip()
+                    except Exception:
+                        text = raw.strip()
+                    if text and _active_reasoning_loop is not None:
+                        asyncio.run_coroutine_threadsafe(
+                            _active_reasoning_loop.handle_learner_answer(text, 0.0),
+                            _main_loop,
+                        )
+                        # Echo back so the conversation log shows the typed message
+                        MetricsBroadcaster.instance().push({"learner_speech": text})
             except asyncio.TimeoutError:
                 pass
     except (WebSocketDisconnect, RuntimeError):
@@ -170,15 +196,22 @@ async def set_session_config(request: Request):
     _pending_session_config.update(body)
     logger.info("Session config updated: %s", body)
 
-    # Determine effective topic: explicit topic > content_label fallback
-    effective_topic = body.get("topic") or body.get("content_label") or None
-
-    # If we now have a topic (either explicit or via content_label), set it as the
-    # "official" topic in pending config AND push to frontend so UI updates.
-    if effective_topic:
-        _pending_session_config["topic"] = effective_topic
-        MetricsBroadcaster.instance().push({"current_topic": effective_topic})
-        logger.info("Effective topic resolved: %s", effective_topic)
+    # Only use an explicit topic (user-provided) as current_topic.
+    # content_label is the raw YouTube/video title — it stays in pending config as
+    # context for the agent but is NOT broadcast as current_topic right away.
+    # extract_topic_from_slide (Gemini vision) will set the real topic once it
+    # analyses the screen frame.
+    explicit_topic = body.get("topic") or None
+    if explicit_topic:
+        _pending_session_config["topic"] = explicit_topic
+        MetricsBroadcaster.instance().push({"current_topic": explicit_topic})
+        logger.info("Explicit topic set: %s", explicit_topic)
+    else:
+        # Keep content_label in config for reasoning-loop context but don't show it as topic
+        content_label = body.get("content_label") or None
+        if content_label:
+            _pending_session_config["content_label"] = content_label
+            logger.info("content_label stored as context (not broadcast as topic): %s", content_label)
 
     return {"ok": True, "config": _pending_session_config}
 

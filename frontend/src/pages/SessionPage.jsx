@@ -245,14 +245,25 @@ function ScreenMiniPreview({ stream }) {
 
 // ── Q&A Conversation log (below learner cam) ─────────────────────────────────
 function ConversationLog() {
-  const conversationLog = useSessionStore((s) => s.conversationLog)
+  const conversationLog      = useSessionStore((s) => s.conversationLog)
+  const sendMessage          = useSessionStore((s) => s.sendMessage)
+  const addConversationEntry = useSessionStore((s) => s.addConversationEntry)
   const scrollRef = useRef(null)
+  const [inputText, setInputText] = useState('')
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [conversationLog.length])
+
+  const handleSend = () => {
+    const text = inputText.trim()
+    if (!text) return
+    if (sendMessage) sendMessage(text)
+    addConversationEntry('user', text)
+    setInputText('')
+  }
 
   return (
     <div className="glass rounded-xl overflow-hidden flex-shrink-0">
@@ -297,6 +308,25 @@ function ConversationLog() {
             </div>
           ))
         )}
+      </div>
+
+      {/* ── Typed reply input ─────────────────────────────────────── */}
+      <div className="border-t border-border/30 p-2 flex gap-1.5">
+        <input
+          type="text"
+          value={inputText}
+          onChange={(e) => setInputText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+          placeholder="Type a reply…"
+          className="flex-1 bg-surface/60 border border-border/40 rounded-lg px-2.5 py-1.5 text-[11px] text-text-primary placeholder-text-muted focus:outline-none focus:border-pulse/50 min-w-0"
+        />
+        <button
+          onClick={handleSend}
+          disabled={!inputText.trim()}
+          className="flex-shrink-0 bg-pulse/20 hover:bg-pulse/30 disabled:opacity-30 border border-pulse/30 rounded-lg px-2.5 py-1.5 text-[11px] text-pulse transition-colors"
+        >
+          Send
+        </button>
       </div>
     </div>
   )

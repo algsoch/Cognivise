@@ -4,6 +4,7 @@
  */
 
 import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
 
 const initialMetrics = {
   engagementScore: 50,
@@ -20,7 +21,9 @@ const initialMetrics = {
   distractionCount: 0,
 }
 
-export const useSessionStore = create((set, get) => ({
+export const useSessionStore = create(
+  persist(
+    (set, get) => ({
   // Auth / identity — default to 'learner' so stream audio can connect immediately
   userId: 'learner',
   userName: null,
@@ -122,9 +125,33 @@ export const useSessionStore = create((set, get) => ({
   streamCallType: 'default',
   setStreamCall: (id, type = 'default') => set({ streamCallId: id, streamCallType: type }),
 
+  // Typed message sender — set by useBackendConnection when WS is open, null when disconnected
+  sendMessage: null,
+  setSendMessage: (fn) => set({ sendMessage: fn }),
+
   // Derived helpers
   get overallHealth() {
     const { engagementScore, attentionScore, cognitiveLoadScore } = get().metrics
     return Math.round((engagementScore + attentionScore + (100 - cognitiveLoadScore)) / 3)
   },
-}))
+}),
+{
+  name: 'cognivise-session',
+  storage: createJSONStorage(() => sessionStorage),
+  // Only persist the fields needed to survive a page refresh.
+  // MediaStreams, live metrics, and history are intentionally excluded.
+  partialize: (state) => ({
+    isInSession: state.isInSession,
+    userId: state.userId,
+    userName: state.userName,
+    userEmail: state.userEmail,
+    callId: state.callId,
+    sessionId: state.sessionId,
+    streamCallId: state.streamCallId,
+    streamCallType: state.streamCallType,
+    topic: state.topic,
+    contentSource: state.contentSource,
+  }),
+}
+)
+)

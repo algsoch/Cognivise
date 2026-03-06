@@ -69,6 +69,8 @@ class MetricsBroadcaster:
         self._clients_lock = threading.Lock()
         # The asyncio loop that the FastAPI server runs on
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Debounce flag: only one broadcast coroutine queued at a time
+        self._broadcast_pending: bool = False
 
     # ── Called by FastAPI server on startup ───────────────────────────────
     def set_loop(self, loop: asyncio.AbstractEventLoop) -> None:
@@ -76,14 +78,20 @@ class MetricsBroadcaster:
 
     # ── Called by processors (from Vision Agents loop) ────────────────────
     def push(self, patch: Dict[str, Any]) -> None:
-        """Thread-safe state update. Triggers a broadcast."""
+        """Thread-safe state update. Schedules ONE broadcast per event loop tick."""
         self._state.update(patch)
         self._state["last_updated"] = time.time()
         self._schedule_broadcast()
 
     def _schedule_broadcast(self) -> None:
-        if self._loop and not self._loop.is_closed():
-            asyncio.run_coroutine_threadsafe(self._broadcast(), self._loop)
+        if not self._loop or self._loop.is_closed():
+            return
+        # Only queue one broadcast at a time — rapid push() calls
+        # merge into the current _state and send as a single message.
+        if self._broadcast_pending:
+            return
+        self._broadcast_pending = True
+        asyncio.run_coroutine_threadsafe(self._broadcast(), self._loop)
 
     # ── WebSocket lifecycle ───────────────────────────────────────────────
     async def connect(self, ws: WebSocket) -> None:
@@ -105,6 +113,7 @@ class MetricsBroadcaster:
         logger.info("Metrics WebSocket disconnected — %d clients", len(self._clients))
 
     async def _broadcast(self) -> None:
+        self._broadcast_pending = False
         payload = json.dumps(self._state)
         dead: List[WebSocket] = []
         with self._clients_lock:

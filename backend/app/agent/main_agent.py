@@ -189,6 +189,10 @@ async def join_call(
     )
     reasoning.set_processors(eng_proc, att_proc, cog_proc)
 
+    # Register reasoning loop with server so typed frontend messages reach it
+    from backend.app.api.server import set_reasoning_loop, clear_reasoning_loop
+    set_reasoning_loop(reasoning)
+
     # Register transcript events so subscribe() can find them
     agent.events.register(
         RealtimeUserSpeechTranscriptionEvent,

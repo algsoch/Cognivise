@@ -51,8 +51,8 @@ class Settings(BaseSettings):
     # ── Agent tuning ─────────────────────────────────────────
     agent_fps: int = 3
     processor_fps: int = 10
-    engagement_check_interval: int = 15  # seconds between state checks
-    intervention_cooldown_seconds: int = 60  # minimum gap between interventions (avoids spamming)
+    engagement_check_interval: int = 12  # seconds between state checks
+    intervention_cooldown_seconds: int = 25  # minimum gap between interventions
 
     # ── Derived ───────────────────────────────────────────────
     @property
