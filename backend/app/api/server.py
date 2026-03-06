@@ -83,7 +83,8 @@ async def trigger_join(request: Request):
     call_type = body.get("call_type", "default")
     user_id   = body.get("user_id", "learner")
     topic     = body.get("topic") or ""
-    user_name = body.get("user_name") or ""
+    user_name  = body.get("user_name") or ""
+    user_email = body.get("user_email") or ""
 
     # Store for the reasoning loop to pick up
     if topic:
@@ -92,6 +93,8 @@ async def trigger_join(request: Request):
         _pending_session_config["user_id"] = user_id
     if user_name:
         _pending_session_config["user_name"] = user_name
+    if user_email:
+        _pending_session_config["user_email"] = user_email
 
     if not call_id:
         return {"ok": False, "error": "call_id is required"}

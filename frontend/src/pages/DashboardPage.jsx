@@ -99,7 +99,7 @@ export default function DashboardPage() {
           </div>
         </div>
         <button
-          onClick={() => navigate('/')}
+          onClick={() => navigate('/?returning=1')}
           className="btn-ghost text-sm border border-pulse/30 text-pulse hover:bg-pulse/10 px-4 py-1.5 rounded-lg"
         >
           + New Session

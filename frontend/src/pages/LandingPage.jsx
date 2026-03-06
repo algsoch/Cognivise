@@ -6,7 +6,7 @@
  */
 
 import { useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useSessionStore } from '../hooks/useSessionStore'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -33,12 +33,19 @@ const SOURCES = [
 ]
 
 export default function LandingPage() {
-  const navigate = useNavigate()
+  const navigate   = useNavigate()
+  const [searchParams] = useSearchParams()
   const { setUser, startSession, setContentSource } = useSessionStore()
+  // If returning=1 (from Dashboard's New Session), pre-fill name+email from store
+  const storedName  = useSessionStore((s) => s.userName)
+  const storedEmail = useSessionStore((s) => s.userEmail)
+  const isReturning = searchParams.get('returning') === '1'
 
-  const [name, setName]   = useState('')
+  const [name, setName]   = useState(isReturning && storedName  ? storedName  : '')
+  const [email, setEmail] = useState(isReturning && storedEmail ? storedEmail : '')
   const [topic, setTopic] = useState('')
-  const [step, setStep]   = useState(1)
+  // Returning users skip straight to step 2 (source picker)
+  const [step, setStep]   = useState(isReturning && storedName ? 2 : 1)
 
   const [sourceType, setSourceType]     = useState(null)
   const [ytUrl, setYtUrl]               = useState('')
@@ -71,6 +78,9 @@ export default function LandingPage() {
     setStep(2)
   }
 
+  // Email validation: optional but must be valid format if provided
+  const emailValid = !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+
   const handleStart = (skipContent = false) => {
     const userId    = `user_${name.toLowerCase().replace(/\s+/g, '_')}_${Date.now()}`
     const callId    = `call_${Date.now()}`
@@ -90,10 +100,10 @@ export default function LandingPage() {
       }
     }
 
-    setUser(userId, name.trim())
+    setUser(userId, name.trim(), email.trim() || null)
     startSession(sessionId, callId, topic.trim())
 
-    // ── Tell the backend agent to JOIN — include user's real name ─────────
+    // ── Tell the backend agent to JOIN — include user's real name + email ──
     fetch('/api/join', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -102,20 +112,27 @@ export default function LandingPage() {
         call_type: 'default',
         user_id:   userId,
         user_name: name.trim(),
+        user_email: email.trim() || null,
         topic:     topic.trim() || null,
       }),
     }).catch(() => {})
 
-    // ── Session config: send topic + content_label so backend uses it ─────
+    // ── Session config: send topic + content_label + email so backend uses it
+    // For screen-share, don't send 'Screen Share' as content_label (it's a mode,
+    // not a topic — backend will auto-detect the real topic from screen frames).
+    const safeLabel = contentSourceObj?.type === 'screenshare'
+      ? null
+      : (contentSourceObj?.label || null)
     fetch('/api/session/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         topic:         topic.trim() || null,
-        content_label: contentSourceObj?.label || null,
+        content_label: safeLabel,
         content_type:  contentSourceObj?.type  || null,
         user_id:       userId,
         user_name:     name.trim(),
+        user_email:    email.trim() || null,
         call_id:       callId,
       }),
     }).catch(() => {})
@@ -190,13 +207,24 @@ export default function LandingPage() {
                   </div>
                   <div>
                     <label className="label-sm block mb-1.5">
+                      Email <span className="text-text-muted font-normal">(optional — to track your progress)</span>
+                    </label>
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      className="input-base w-full" />
+                    {email.trim() && !emailValid && (
+                      <p className="text-xs text-crimson mt-1">Please enter a valid email address</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="label-sm block mb-1.5">
                       Topic <span className="text-text-muted font-normal">(optional — AI auto-detects from screen)</span>
                     </label>
                     <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)}
                       placeholder="Leave blank — AI reads your screen content automatically"
                       className="input-base w-full" />
                   </div>
-                  <button type="submit" disabled={!name.trim()}
+                  <button type="submit" disabled={!name.trim() || !emailValid}
                     className="btn-primary w-full py-3.5 text-base mt-2 disabled:opacity-50 disabled:cursor-not-allowed">
                     Continue →
                   </button>

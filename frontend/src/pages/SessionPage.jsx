@@ -22,7 +22,7 @@ import { useBackendConnection } from '../hooks/useBackendConnection'
 import { useStreamAudio } from '../hooks/useStreamAudio'
 
 // ── Lecture panel content ────────────────────────────────────────────────────
-function LectureContent({ contentSource, screenStream, contentRef, isSpeaking }) {
+function LectureContent({ contentSource, screenStream, contentRef, isSpeaking, startScreenShare }) {
   const localVideoRef = useRef(null)
 
   // Attach screen share stream to <video>
@@ -91,14 +91,27 @@ function LectureContent({ contentSource, screenStream, contentRef, isSpeaking })
           ref={localVideoRef}
           autoPlay
           muted
+          playsInline
           className="w-full h-full rounded-lg object-contain bg-black"
         />
       )
     }
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-text-muted">
-        <span className="text-5xl animate-pulse">🖥</span>
-        <p className="text-sm">Starting screen share…</p>
+      <div className="flex-1 flex flex-col items-center justify-center gap-6 text-text-muted">
+        <span className="text-6xl">🖥</span>
+        <div className="text-center">
+          <p className="text-base font-medium text-text-primary mb-1">Screen Share</p>
+          <p className="text-sm text-text-muted mb-4">
+            Click below to choose a window or tab to share.<br />
+            Algsoch will watch what you study and ask questions about it.
+          </p>
+          <button
+            onClick={startScreenShare}
+            className="btn-primary px-6 py-2.5 text-sm"
+          >
+            🖥 Start Screen Share
+          </button>
+        </div>
       </div>
     )
   }
@@ -525,7 +538,6 @@ export default function SessionPage() {
   const [agentIsSpeaking, setAgentIsSpeaking] = useState(false)
   const [toastText, setToastText]             = useState('')
   const contentRef   = useRef(null)
-  const hasCapturedRef = useRef(false)  // prevents repeated getDisplayMedia on re-renders
 
   useEffect(() => {
     if (!agentSpeech) return
@@ -540,25 +552,18 @@ export default function SessionPage() {
   // Join the backend's Stream WebRTC call and play agent audio
   useStreamAudio()
 
-  // Screen capture — request permission ONCE (hasCapturedRef guards against
-  // React StrictMode double-invoke and component re-renders requesting again)
-  useEffect(() => {
-    if (contentSource?.type !== 'screenshare') return
-    if (hasCapturedRef.current) return
-    hasCapturedRef.current = true
-    let active = true
-    navigator.mediaDevices?.getDisplayMedia({ video: true, audio: false })
-      .then((stream) => {
-        if (!active) { stream.getTracks().forEach((t) => t.stop()); return }
-        setScreenStream(stream)
-        stream.getVideoTracks()[0]?.addEventListener('ended', () => setScreenStream(null))
-      })
-      .catch(() => {
-        // Permission denied — reset flag so user can try again via the cam
-        hasCapturedRef.current = false
-      })
-    return () => { active = false }
-  }, [contentSource?.type])
+
+  // Screen capture — triggered by user button click.
+  // Browsers block getDisplayMedia() called from useEffect (requires user gesture).
+  const startScreenShare = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+      setScreenStream(stream)
+      stream.getVideoTracks()[0]?.addEventListener('ended', () => setScreenStream(null))
+    } catch {
+      // User cancelled or permission denied
+    }
+  }
 
   useEffect(() => {
     if (!isInSession) navigate('/')
@@ -610,6 +615,7 @@ export default function SessionPage() {
                 screenStream={screenStream}
                 contentRef={contentRef}
                 isSpeaking={agentIsSpeaking}
+                startScreenShare={startScreenShare}
               />
 
               {/* Source badge top-left */}

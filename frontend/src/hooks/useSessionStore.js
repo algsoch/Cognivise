@@ -24,7 +24,8 @@ export const useSessionStore = create((set, get) => ({
   // Auth / identity — default to 'learner' so stream audio can connect immediately
   userId: 'learner',
   userName: null,
-  setUser: (id, name) => set({ userId: id, userName: name }),
+  userEmail: null,
+  setUser: (id, name, email = null) => set({ userId: id, userName: name, userEmail: email }),
 
   // Session
   sessionId: null,

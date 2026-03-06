@@ -117,17 +117,23 @@ async def join_call(
     memory = MemoryManager()
     claude = ClaudeEngine()
     gemini_engine = GeminiEngine()
-    session = UserSession(user_id=user_id, call_id=call_id, current_topic=topic)
+    # Grab email + user_name from pending session config before creating session
+    from backend.app.api.server import get_pending_session_config
+    cfg = get_pending_session_config()
+    user_email = cfg.pop("user_email", None) or None
+    stored_name = cfg.pop("user_name", None) or None
+
+    session = UserSession(user_id=user_id, call_id=call_id, current_topic=topic, email=user_email)
     await memory.create_session(session)
 
     # If no topic passed via framework kwargs, check the session config posted by the frontend
     if not topic:
-        from backend.app.api.server import get_pending_session_config
-        cfg = get_pending_session_config()
         topic = cfg.pop("topic", None) or None   # pop so stale topic doesn't leak into next session
         if topic:
             session.current_topic = topic
             logger.info("Using topic from session config: %s", topic)
+    if user_email:
+        logger.info("Session email: %s", user_email)
 
     # Publish call info so the frontend can join via Stream WebRTC
     MetricsBroadcaster.instance().push({"call_id": call_id, "call_type": call_type})
