@@ -155,13 +155,20 @@ class ReasoningLoop:
                 if _is_generic_label(_t):
                     _t = None
                 if not _t:
-                    # Fall back to content_label (e.g. YouTube video title or filename)
-                    # but only if it is a real topic, not a generic mode label
+                    # content_label is the raw YouTube title / filename — extract the real
+                    # academic subject from it using Gemini text rather than using it verbatim.
                     _candidate = cfg.get("content_label")
-                    if not _is_generic_label(_candidate):
-                        _t = _candidate
+                    if _candidate and not _is_generic_label(_candidate):
+                        try:
+                            _extracted = await self._gemini.extract_topic_from_title(_candidate)
+                            if _extracted and not _is_generic_label(_extracted):
+                                _t = _extracted
+                                logger.info("Topic extracted from content_label '%s' → '%s'", _candidate, _t)
+                        except Exception as _ex:
+                            logger.debug("Topic title extraction failed: %s", _ex)
                 if _t:
                     session.current_topic = _t
+                    MetricsBroadcaster.instance().push({"current_topic": _t})
                     logger.info("Topic set from session config: %s", session.current_topic)
             except Exception:
                 pass
@@ -184,11 +191,11 @@ class ReasoningLoop:
                     topic_from_screen = await self._gemini.extract_topic_from_slide(frame)
                     if topic_from_screen and not _is_generic_label(topic_from_screen):
                         self._last_screen_topic = topic_from_screen
-                        # Override current_topic if it is absent OR a generic label
-                        if not session.current_topic or _is_generic_label(session.current_topic):
+                        # Always override with the frame-extracted topic — Gemini
+                        # vision reading the actual screen beats any title heuristic.
+                        if topic_from_screen != session.current_topic:
                             session.current_topic = topic_from_screen
-                            logger.info("Topic auto-detected from screen content: %s", topic_from_screen)
-                            # Broadcast updated topic immediately
+                            logger.info("Topic updated from screen frame: %s", topic_from_screen)
                             MetricsBroadcaster.instance().push({"current_topic": topic_from_screen})
                 except Exception as _exc:
                     logger.debug("Screen topic extraction failed: %s", _exc)

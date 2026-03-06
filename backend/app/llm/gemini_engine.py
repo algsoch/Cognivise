@@ -128,6 +128,28 @@ class GeminiEngine:
             return None
         return result.strip()
 
+    async def extract_topic_from_title(self, title: str) -> Optional[str]:
+        """
+        Extract the real academic subject from a video title / filename.
+        E.g.  "Android just changed the whole game for developers"
+              → "Android development" or "Android app development changes"
+        Returns None if the title gives no useful learning topic.
+        """
+        if not title or not title.strip():
+            return None
+        prompt = (
+            f'A learner is watching a video titled: "{title.strip()}".\n'
+            "What is the specific academic or technical topic they are studying?\n"
+            "Examples of good answers: 'Android development', 'React hooks', "
+            "'machine learning fundamentals', 'photosynthesis', 'Newton\'s laws'.\n"
+            "Do NOT echo the full title. Do NOT say 'YouTube', 'video', 'screen share'.\n"
+            "Reply with only the topic phrase (max 8 words) or the word null."
+        )
+        result = await self._text(prompt, max_tokens=32)
+        if not result or result.strip().lower() in ("null", "none", "unknown", ""):
+            return None
+        return result.strip()
+
     async def check_learner_confusion_from_face(
         self, face_frame: np.ndarray
     ) -> bool:

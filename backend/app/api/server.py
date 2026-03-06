@@ -158,8 +158,10 @@ async def ws_metrics(websocket: WebSocket):
                             _active_reasoning_loop.handle_learner_answer(text, 0.0),
                             _main_loop,
                         )
-                        # Echo back so the conversation log shows the typed message
-                        MetricsBroadcaster.instance().push({"learner_speech": text})
+                        # NOTE: do NOT broadcast learner_speech here — the frontend
+                        # already adds the typed message to the log immediately in
+                        # handleSend(). Broadcasting it would echo it once per open
+                        # WebSocket connection, causing duplicate log entries.
             except asyncio.TimeoutError:
                 pass
     except (WebSocketDisconnect, RuntimeError):
