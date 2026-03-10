@@ -1,0 +1,47 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "start backend",
+			"type": "shell",
+			"command": "PYTHONPATH=. .venv/bin/python -W ignore backend/main.py run",
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "start backend",
+			"type": "shell",
+			"command": "PYTHONPATH=. .venv/bin/python -W ignore backend/main.py run",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "restart-backend-fixed",
+			"type": "shell",
+			"command": "pkill -9 -f 'backend/main' 2>/dev/null; sleep 2; PYTHONPATH=. .venv/bin/python -W ignore backend/main.py run > /tmp/be_fixed.log 2>&1",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "backend-v2",
+			"type": "shell",
+			"command": "pkill -9 -f 'backend/main' 2>/dev/null; sleep 2; PYTHONPATH=. .venv/bin/python -W ignore backend/main.py run > /tmp/be_v2.log 2>&1",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "backend-gemini",
+			"type": "shell",
+			"command": "pkill -9 -f 'backend/main' 2>/dev/null; sleep 2; PYTHONPATH=. .venv/bin/python -W ignore backend/main.py run > /tmp/be_gemini.log 2>&1",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "backend-final",
+			"type": "shell",
+			"command": "pkill -9 -f 'backend/main' 2>/dev/null; sleep 2; PYTHONPATH=. .venv/bin/python -W ignore backend/main.py run",
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}
