@@ -144,21 +144,24 @@ async def join_call(
 
     # Create and start reasoning loop
     async def _speak(text: str) -> None:
-        """Make the agent speak `text` aloud via Gemini Realtime.
+        """Make the agent speak `text` aloud.
 
-        send_realtime_input(text=X) delivers X as *user* speech, so we must
-        send an *instruction* that prompts Gemini to speak, not the raw text.
-        We use send_client_content (turn-based) which always triggers a model
-        response — unlike send_realtime_input which can be swallowed by VAD
-        when there is no active audio activity window.
+        1. ALWAYS broadcast agent_speech immediately — browser SpeechSynthesis
+           picks this up regardless of Gemini state (guaranteed TTS fallback).
+        2. Also push to Gemini Realtime so it speaks via WebRTC audio if
+           the session is live (best quality). Skip Gemini silently if not ready.
         """
-        if not _tts_ready[0]:
-            logger.warning("⚠️  _speak SKIPPED — TTS not ready. Text was: %.80s", text)
+        if not text:
             return
+        # ── Step 1: browser SpeechSynthesis fallback — ALWAYS ────────────────
+        # This fires even when Gemini is reconnecting, so the agent is never mute.
         logger.info("🔊 Agent speaking: %.100s", text)
-        # Broadcast spoken text to frontend WebSocket so SpeechSynthesis fallback
-        # can read it aloud in the browser (guaranteed, no Stream audio needed)
         MetricsBroadcaster.instance().push({"agent_speech": text})
+
+        # ── Step 2: Gemini Realtime (WebRTC audio) — only when ready ─────────
+        if not _tts_ready[0]:
+            logger.debug("Gemini TTS not ready — browser SpeechSynthesis only")
+            return
         try:
             from google.genai.types import Content, Part as _Part
             _sess = getattr(agent.llm, '_real_session', None)

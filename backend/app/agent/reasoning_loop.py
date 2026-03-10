@@ -170,6 +170,13 @@ class ReasoningLoop:
                     session.current_topic = _t
                     MetricsBroadcaster.instance().push({"current_topic": _t})
                     logger.info("Topic set from session config: %s", session.current_topic)
+                elif cfg.get("content_label") and not _is_generic_label(cfg.get("content_label")):
+                    # Gemini extraction failed or hasn't run — use raw content_label
+                    # as provisional topic so interventions aren't permanently blocked.
+                    _raw = cfg["content_label"]
+                    session.current_topic = _raw
+                    MetricsBroadcaster.instance().push({"current_topic": _raw})
+                    logger.info("Topic set from raw content_label (Gemini unavailable): %s", _raw)
             except Exception:
                 pass
 
@@ -334,14 +341,21 @@ class ReasoningLoop:
         self, snap: LearningStateSnapshot, intervention: InterventionType
     ) -> None:
         session = self._session
-        # Use screen-detected topic if available; fall back to session topic.
-        # If both are generic/absent, defer — asking about "Screen Share" is useless.
+        # For question-based interventions we need a real topic.
+        # ENGAGE / CHECK_IN / ENCOURAGEMENT work without one.
         topic = self._last_screen_topic or session.current_topic
-        if _is_generic_label(topic):
-            logger.info(
-                "Skipping intervention — topic not yet determined (screen analysis pending)"
-            )
-            return
+        topic_required = intervention in (
+            InterventionType.ASK_QUESTION,
+            InterventionType.SIMPLIFY,
+            InterventionType.BREAK_DOWN,
+            InterventionType.INCREASE_DIFFICULTY,
+            InterventionType.ACTIVE_RECALL,
+        )
+        if topic_required and _is_generic_label(topic):
+            # No topic yet — fall back to a CHECK_IN so we at least say something
+            logger.info("No topic yet — downgrading %s to CHECK_IN", intervention.value)
+            intervention = InterventionType.CHECK_IN
+            topic = None
         topic = topic or "the current topic"
 
         # Broadcast the agent's intent so the frontend activity panel updates immediately
