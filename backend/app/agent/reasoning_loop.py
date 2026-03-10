@@ -160,23 +160,24 @@ class ReasoningLoop:
                     _candidate = cfg.get("content_label")
                     if _candidate and not _is_generic_label(_candidate):
                         try:
-                            _extracted = await self._gemini.extract_topic_from_title(_candidate)
+                            _extracted = await asyncio.wait_for(
+                                self._gemini.extract_topic_from_title(_candidate),
+                                timeout=8.0,
+                            )
                             if _extracted and not _is_generic_label(_extracted):
                                 _t = _extracted
                                 logger.info("Topic extracted from content_label '%s' → '%s'", _candidate, _t)
+                        except asyncio.TimeoutError:
+                            logger.debug("Topic extraction timed out — using raw label")
+                            # Fall back to using the raw label directly rather than skipping
+                            _t = _candidate
                         except Exception as _ex:
                             logger.debug("Topic title extraction failed: %s", _ex)
+                            _t = _candidate  # fall back to raw label
                 if _t:
                     session.current_topic = _t
                     MetricsBroadcaster.instance().push({"current_topic": _t})
                     logger.info("Topic set from session config: %s", session.current_topic)
-                elif cfg.get("content_label") and not _is_generic_label(cfg.get("content_label")):
-                    # Gemini extraction failed or hasn't run — use raw content_label
-                    # as provisional topic so interventions aren't permanently blocked.
-                    _raw = cfg["content_label"]
-                    session.current_topic = _raw
-                    MetricsBroadcaster.instance().push({"current_topic": _raw})
-                    logger.info("Topic set from raw content_label (Gemini unavailable): %s", _raw)
             except Exception:
                 pass
 
@@ -341,21 +342,24 @@ class ReasoningLoop:
         self, snap: LearningStateSnapshot, intervention: InterventionType
     ) -> None:
         session = self._session
-        # For question-based interventions we need a real topic.
-        # ENGAGE / CHECK_IN / ENCOURAGEMENT work without one.
+        # Use screen-detected topic if available; fall back to session topic.
         topic = self._last_screen_topic or session.current_topic
-        topic_required = intervention in (
-            InterventionType.ASK_QUESTION,
-            InterventionType.SIMPLIFY,
-            InterventionType.BREAK_DOWN,
-            InterventionType.INCREASE_DIFFICULTY,
-            InterventionType.ACTIVE_RECALL,
+
+        # For ENGAGE and CHECK_IN, fire even without a topic.
+        # For content-specific interventions (ASK_QUESTION, etc), need a topic.
+        needs_topic = intervention not in (
+            InterventionType.ENGAGE,
+            InterventionType.CHECK_IN,
+            InterventionType.ENCOURAGEMENT,
         )
-        if topic_required and _is_generic_label(topic):
-            # No topic yet — fall back to a CHECK_IN so we at least say something
-            logger.info("No topic yet — downgrading %s to CHECK_IN", intervention.value)
+        if needs_topic and _is_generic_label(topic):
+            logger.info(
+                "No topic yet — converting %s → CHECK_IN", intervention.value
+            )
             intervention = InterventionType.CHECK_IN
             topic = None
+
+        # Safe fallback label for topic-referencing strings
         topic = topic or "the current topic"
 
         # Broadcast the agent's intent so the frontend activity panel updates immediately

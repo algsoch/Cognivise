@@ -142,32 +142,21 @@ async def join_call(
     # Track whether Gemini TTS is available (False during Stream reconnects)
     _tts_ready = [False]   # list so inner async closure can mutate
 
-    # Create and start reasoning loop
+    # ── speak function: ALWAYS broadcasts agent_speech (browser SpeechSynthesis
+    #    picks it up immediately). Gemini Realtime TTS is a best-effort bonus.
     async def _speak(text: str) -> None:
-        """Make the agent speak `text` aloud.
-
-        1. ALWAYS broadcast agent_speech immediately — browser SpeechSynthesis
-           picks this up regardless of Gemini state (guaranteed TTS fallback).
-        2. Also push to Gemini Realtime so it speaks via WebRTC audio if
-           the session is live (best quality). Skip Gemini silently if not ready.
-        """
         if not text:
             return
-        # ── Step 1: browser SpeechSynthesis fallback — ALWAYS ────────────────
-        # This fires even when Gemini is reconnecting, so the agent is never mute.
         logger.info("🔊 Agent speaking: %.100s", text)
+        # Always push to frontend — browser SpeechSynthesis will read it aloud
         MetricsBroadcaster.instance().push({"agent_speech": text})
-
-        # ── Step 2: Gemini Realtime (WebRTC audio) — only when ready ─────────
         if not _tts_ready[0]:
-            logger.debug("Gemini TTS not ready — browser SpeechSynthesis only")
-            return
+            return   # Gemini session not ready yet: browser TTS is sufficient
         try:
             from google.genai.types import Content, Part as _Part
             _sess = getattr(agent.llm, '_real_session', None)
             if _sess is None:
-                raise RuntimeError("Gemini session not established")
-            # send_client_content guarantees a model reply regardless of VAD state
+                return
             await _sess.send_client_content(
                 turns=Content(
                     role="user",
@@ -176,11 +165,11 @@ async def join_call(
                 turn_complete=True,
             )
         except Exception as exc1:
-            logger.warning("send_client_content failed (%s) — falling back to simple_response", exc1)
+            logger.warning("send_client_content failed (%s) — browser TTS in use", exc1)
             try:
                 await agent.llm.simple_response(text=f"Say the following to the learner: {text}")
-            except Exception as exc2:
-                logger.error("agent.say also failed — agent is mute: %s", exc2)
+            except Exception:
+                pass
 
     reasoning = ReasoningLoop(
         session=session,
@@ -195,6 +184,13 @@ async def join_call(
     # Register reasoning loop with server so typed frontend messages reach it
     from backend.app.api.server import set_reasoning_loop, clear_reasoning_loop
     set_reasoning_loop(reasoning)
+
+    # ── START REASONING LOOP IMMEDIATELY ───────────────────────────────────────
+    # Do NOT wait for agent.join() (Stream WebRTC) — that can hang or fail.
+    # Monitoring, questions, and browser TTS all work without WebRTC.
+    # Gemini Realtime is a bonus audio layer added when join() succeeds.
+    await reasoning.start()
+    logger.info("✅ ReasoningLoop started immediately — monitoring is live")
 
     # Register transcript events so subscribe() can find them
     agent.events.register(
@@ -255,7 +251,7 @@ async def join_call(
     MAX_RECONNECTS = 50   # more retries — sessions can reconnect indefinitely
     _reconnect_delay = 2  # start fast; backoff only on repeated drops
     _first_join = True
-    _reasoning_started = False    # start once; persists across Gemini drops
+    _reasoning_started = True    # already started above
 
     # Gemini Live disconnects with 1011 "keepalive ping timeout" after ~2 min
     # of learner silence (no audio flowing). Reconnect proactively every 2 min
@@ -273,7 +269,7 @@ async def join_call(
                         _reasoning_started = True
                         logger.info("✅ ReasoningLoop started — agent is now active")
 
-                    # Allow _speak to work now that Gemini is connected
+                    # Allow Gemini TTS now that Gemini is connected
                     _tts_ready[0] = True
                     logger.info("✅ _tts_ready = True (Gemini live, attempt %d)", _attempt)
 
