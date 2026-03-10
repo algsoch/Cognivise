@@ -13,8 +13,7 @@
  */
 
 import { useEffect, useRef } from 'react'
-
-// ── colours ───────────────────────────────────────────────────────────────────
+import { useSessionStore } from '../hooks/useSessionStore'
 const C = {
   green:  [80,  250, 80 ],
   red:    [255, 72,  72 ],
@@ -125,6 +124,16 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
   metricsRef.current         = metrics
   isTypingRef.current        = isTyping
 
+  // ── Face metrics → backend (browser MediaPipe → WS → reasoning loop) ────
+  // The backend EngagementProcessor only gets data if Stream WebRTC video works.
+  // We bypass that entirely: browser already has perfect face data, send it direct.
+  const sendRaw         = useSessionStore(s => s.sendRaw)
+  const sendRawRef      = useRef(null)
+  const lastFaceSendRef = useRef(0)
+  const blinkTrackRef   = useRef({ earBelow: 0, count: 0, windowStart: Date.now(), rate: 15.0 })
+  const faceMetricsRef  = useRef({ face_detected: false, gaze_on_screen: true, head_yaw: 0, head_pitch: 0, blink_rate: 15, restlessness: 0 })
+  sendRawRef.current = sendRaw   // always current without re-running effects
+
   // ── Init MediaPipe ───────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false
@@ -180,6 +189,14 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
   useEffect(() => {
     let timer = null
 
+    // EAR (Eye Aspect Ratio) helper for blink detection
+    function computeEAR(lms, idxs) {
+      const [p0,p1,p2,p3,p4,p5] = idxs.map(i => lms[i])
+      if (!p0||!p1||!p2||!p3||!p4||!p5) return 0.3
+      const d = (a,b) => Math.hypot(a.x - b.x, a.y - b.y)
+      return (d(p1,p5) + d(p2,p4)) / (2 * d(p0,p3) + 1e-6)
+    }
+
     function runDetection() {
       const videoEl = videoRef?.current
       const landmarker = landmarkerRef.current
@@ -192,11 +209,14 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
         const ts = performance.now()
         const results = landmarker.detectForVideo(videoEl, ts)
         if (results.faceLandmarks?.length > 0) {
-          lastMpLandmarksRef.current = results.faceLandmarks[0].map(lm => ({
+          const rawLms = results.faceLandmarks[0]  // normalized [0,1] — used for metrics
+
+          lastMpLandmarksRef.current = rawLms.map(lm => ({
             x: lm.x * rect.rw + rect.ox,
             y: lm.y * rect.rh + rect.oy,
             z: lm.z,
           }))
+
           // Parse blendshapes for realtime expression detection
           const bs = results.faceBlendshapes?.[0]?.categories ?? []
           const getBS = name => bs.find(b => b.categoryName === name)?.score ?? 0
@@ -205,11 +225,52 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
             mouthOpen : getBS('jawOpen') > 0.25,
             browUp    : Math.max(getBS('browInnerUp'), getBS('browOuterUpLeft'), getBS('browOuterUpRight')) > 0.35,
           }
+
+          // ── Compute real face metrics to send to backend ─────────────
+          // EAR blink tracking (left eye: 362,385,387,263,373,380 / right: 33,160,158,133,153,144)
+          const avgEAR = (computeEAR(rawLms,[362,385,387,263,373,380]) + computeEAR(rawLms,[33,160,158,133,153,144])) / 2
+          const btr = blinkTrackRef.current
+          if (avgEAR < 0.2) { btr.earBelow++ } else { if (btr.earBelow >= 2) btr.count++; btr.earBelow = 0 }
+          const blinkElapsed = (Date.now() - btr.windowStart) / 1000
+          if (blinkElapsed >= 10) { btr.rate = (btr.count / blinkElapsed) * 60; btr.count = 0; btr.windowStart = Date.now() }
+
+          // Iris-based gaze (same logic as backend _estimate_gaze_tasks)
+          let gazeOnScreen = true
+          try {
+            const lIrisX = rawLms[473].x, rIrisX = rawLms[468].x
+            const lR = (lIrisX - rawLms[33].x) / (rawLms[133].x - rawLms[33].x + 1e-6)
+            const rR = (rIrisX - rawLms[362].x) / (rawLms[263].x - rawLms[362].x + 1e-6)
+            gazeOnScreen = (lR > 0.2 && lR < 0.8) && (rR > 0.2 && rR < 0.8)
+          } catch { /* keep true */ }
+
+          // Head pose from nose tip vs eye midpoint
+          const nose = rawLms[1], lEyeLm = rawLms[33], rEyeLm = rawLms[263]
+          const faceCx = (lEyeLm.x + rEyeLm.x) / 2
+          const faceCy = (lEyeLm.y + rEyeLm.y) / 2
+          const headYaw   = nose ? +((nose.x - faceCx) * 200).toFixed(1) : 0
+          const headPitch = nose ? +((nose.y - faceCy) * 200).toFixed(1) : 0
+
+          faceMetricsRef.current = {
+            face_detected : true,
+            gaze_on_screen: gazeOnScreen,
+            blink_rate    : +btr.rate.toFixed(1),
+            head_yaw      : headYaw,
+            head_pitch    : headPitch,
+            restlessness  : 0,
+          }
         } else {
           lastMpLandmarksRef.current = null
+          faceMetricsRef.current = { ...faceMetricsRef.current, face_detected: false, gaze_on_screen: false }
         }
       } catch {
         lastMpLandmarksRef.current = null
+      }
+
+      // ── Send to backend ~1x/sec (throttled) ──────────────────────────
+      const now = Date.now()
+      if (sendRawRef.current && now - lastFaceSendRef.current > 900) {
+        lastFaceSendRef.current = now
+        sendRawRef.current({ face_metrics: faceMetricsRef.current })
       }
     }
 

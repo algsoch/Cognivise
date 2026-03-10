@@ -55,6 +55,7 @@ export function useBackendConnection() {
   const setLearnerSpeech       = useSessionStore((s) => s.setLearnerSpeech)
   const addConversationEntry   = useSessionStore((s) => s.addConversationEntry)
   const setSendMessage         = useSessionStore((s) => s.setSendMessage)
+  const setSendRaw             = useSessionStore((s) => s.setSendRaw)
 
   const wsRef       = useRef(null)
   const timerRef    = useRef(null)
@@ -77,6 +78,7 @@ export function useBackendConnection() {
         if (!mountedRef.current) { ws.close(); return }
         setAgentStatus('connected')
         setSendMessage((text) => ws.send(JSON.stringify({ learner_message: text })))
+        setSendRaw((obj) => ws.send(JSON.stringify(obj)))
       }
 
       ws.onmessage = (evt) => {
@@ -174,6 +176,7 @@ export function useBackendConnection() {
         if (!mountedRef.current) return
         setAgentStatus('disconnected')
         setSendMessage(null)
+        setSendRaw(null)
         // Schedule reconnect
         timerRef.current = setTimeout(connect, RECONNECT_DELAY)
       }
@@ -191,6 +194,7 @@ export function useBackendConnection() {
       wsRef.current?.close()
       setAgentStatus('disconnected')
       setSendMessage(null)
+      setSendRaw(null)
     }
   }, []) // run once on mount
 

@@ -129,6 +129,10 @@ export const useSessionStore = create(
   sendMessage: null,
   setSendMessage: (fn) => set({ sendMessage: fn }),
 
+  // Raw JSON sender — for structured payloads (e.g. face_metrics from browser MediaPipe)
+  sendRaw: null,
+  setSendRaw: (fn) => set({ sendRaw: fn }),
+
   // Derived helpers
   get overallHealth() {
     const { engagementScore, attentionScore, cognitiveLoadScore } = get().metrics
