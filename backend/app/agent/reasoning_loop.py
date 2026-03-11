@@ -562,12 +562,14 @@ class ReasoningLoop:
 
         # Use Gemini as primary evaluator (same key as Realtime — no extra cost)
         _primary = self._gemini
+        _eval_start = time.time()
         eval_result = await _primary.evaluate_answer(
             question=q.get("question", ""),
             expected_points=q.get("expected_answer_points", []),
             learner_answer=text,
             topic=topic,
         )
+        _ai_response_ms = round((time.time() - _eval_start) * 1000)
 
         correct = eval_result.get("correct", False)
         feedback = eval_result.get("feedback", "")
@@ -604,5 +606,7 @@ class ReasoningLoop:
         )
         # Push mastery update so the frontend MasteryTracker refreshes
         MetricsBroadcaster.instance().push({
-            "mastery": {topic: round(tm.mastery_score, 1)}
+            "mastery": {topic: round(tm.mastery_score, 1)},
+            "ai_response_ms": _ai_response_ms,
+            "user_response_ms": round(response_delay_ms),
         })

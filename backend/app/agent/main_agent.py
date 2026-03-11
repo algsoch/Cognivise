@@ -144,32 +144,39 @@ async def join_call(
     # Track whether Gemini TTS is available (False during Stream reconnects)
     _tts_ready = [False]   # list so inner async closure can mutate
 
+    # Phonetic replacement so TTS says "Alagsoch" (Hindi: different thinker)
+    # while the display name remains "Algsoch".
+    def _tts_text(text: str) -> str:
+        return text.replace("Algsoch", "Alagsoch")
+
     # ── speak function: ALWAYS broadcasts agent_speech (browser SpeechSynthesis
     #    picks it up immediately). Gemini Realtime TTS is a best-effort bonus.
     async def _speak(text: str) -> None:
         if not text:
             return
         logger.info("🔊 Agent speaking: %.100s", text)
-        # Always push to frontend — browser SpeechSynthesis will read it aloud
+        # Push display text to frontend (shown in chat log + triggers browser TTS fallback)
         MetricsBroadcaster.instance().push({"agent_speech": text})
         if not _tts_ready[0]:
-            return   # Gemini session not ready yet: browser TTS is sufficient
+            return   # Gemini session not ready yet: browser TTS fallback in frontend
         try:
             from google.genai.types import Content, Part as _Part
             _sess = getattr(agent.llm, '_real_session', None)
             if _sess is None:
                 return
+            # Use phonetic pronunciation for TTS
+            _spoken = _tts_text(text)
             await _sess.send_client_content(
                 turns=Content(
                     role="user",
-                    parts=[_Part(text=f"Say the following to the learner: {text}")],
+                    parts=[_Part(text=f"Say the following to the learner: {_spoken}")],
                 ),
                 turn_complete=True,
             )
         except Exception as exc1:
             logger.warning("send_client_content failed (%s) — browser TTS in use", exc1)
             try:
-                await agent.llm.simple_response(text=f"Say the following to the learner: {text}")
+                await agent.llm.simple_response(text=f"Say the following to the learner: {_tts_text(text)}")
             except Exception:
                 pass
 
@@ -205,18 +212,49 @@ async def join_call(
         ignore_not_compatible=True,
     )
 
+    # STT debounce state — accumulate partial transcripts; only forward final ones
+    _stt_buffer: list[str] = []
+    _stt_last_flush: float = 0.0
+
     # Register STT callback to feed transcript into the reasoning loop
     # Using agent.events.subscribe() with type hints — RealtimeUserSpeechTranscriptionEvent
     # fires when Gemini Realtime STT transcribes the learner
     @agent.events.subscribe
     async def _on_speech(event: RealtimeUserSpeechTranscriptionEvent):
+        nonlocal _stt_buffer, _stt_last_flush
         participant_id = event.user_id() or ""
-        if participant_id != "learning_agent" and event.text:
-            delay_ms = (time.time() - reasoning._question_asked_at) * 1000 if reasoning._question_asked_at else 0.0
-            await reasoning.handle_learner_answer(event.text, delay_ms)
-            session.add_transcript(f"Learner: {event.text}")
-            # Broadcast so the frontend activity panel shows "You said:"
+        if participant_id == "learning_agent" or not event.text:
+            return
+
+        # Check if this is a final transcript
+        _is_final = getattr(event, 'is_final', getattr(event, 'final', True))
+
+        # Skip single-character noise / STT warmup fragments
+        words = event.text.strip().split()
+        if len(words) < 2 and not _is_final:
+            return  # partial single-word fragment — wait for more
+
+        # Accumulate text; flush on final OR when 2+ seconds since last update
+        _stt_buffer.append(event.text)
+        now2 = time.time()
+        if not _is_final and (now2 - _stt_last_flush) < 2.0:
+            # Not final yet and still getting updates — don't forward yet
             MetricsBroadcaster.instance().push({"learner_speech": event.text})
+            return
+
+        # Flush: take the longest buffered text as the final utterance
+        final_text = max(_stt_buffer, key=len) if _stt_buffer else event.text
+        _stt_buffer = []
+        _stt_last_flush = now2
+
+        delay_ms = (now2 - reasoning._question_asked_at) * 1000 if reasoning._question_asked_at else 0.0
+        # Broadcast user latency so frontend shows response-time graph
+        MetricsBroadcaster.instance().push({
+            "learner_speech": final_text,
+            "user_response_ms": round(delay_ms),
+        })
+        await reasoning.handle_learner_answer(final_text, delay_ms)
+        session.add_transcript(f"Learner: {final_text}")
 
     # Register for agent's spoken output (transcription of what Gemini actually said)
     # This fires AFTER Gemini speaks via WebRTC — used for display/transcript only.
@@ -352,25 +390,43 @@ async def join_call(
                         _learner_name = session.user_name or None
                         _name_part = f" {_learner_name}!" if _learner_name else "!"
 
+                        # Determine session mode (ai_chat = direct teach, others = video tutoring)
+                        _content_type = _cfg.get('content_type', 'youtube') or 'youtube'
+                        _is_teach_mode = _content_type in ('ai_chat',)
+
                         # Greeting: send an INSTRUCTION to Gemini so it generates
                         # its own spoken greeting. send_client_content guarantees
                         # a model reply even when the learner hasn't spoken yet.
-                        _greeting_prompt = (
-                            f"A learner named {_learner_name or 'the student'} just joined your tutoring session. "
-                            f"Greet them by name warmly. Introduce yourself as Algsoch, their AI learning tutor. "
-                            f"Tell them you're watching their video about '{_live_topic}' and you'll ask questions "
-                            f"to help them understand it deeper. Keep it under 2 sentences."
-                            if _live_topic else
-                            f"A learner named {_learner_name or 'the student'} just joined your tutoring session. "
-                            f"Greet them by name warmly. Introduce yourself as Algsoch, their AI learning tutor. "
-                            f"Ask what topic or video they're studying today. Keep it under 2 sentences."
-                        )
-                        # Also push a short speech text so the TTS fallback fires in the browser
-                        _greet_speech = (
-                            f"Hey{_name_part} I'm Algsoch, your AI tutor! I see you're watching '{_live_topic}'. Let's dive in together!"
-                            if _live_topic else
-                            f"Hey{_name_part} I'm Algsoch, your AI tutor! What are you studying today?"
-                        )
+                        # Gemini prompt uses phonetic "Alagsoch"; display remains "Algsoch".
+                        if _is_teach_mode and _live_topic:
+                            _greeting_prompt = (
+                                f"A learner named {_learner_name or 'the student'} wants you to teach them '{_live_topic}'. "
+                                f"Greet them by first name. Introduce yourself as Alagsoch, their personal AI tutor. "
+                                f"Tell them you'll teach {_live_topic} — ask what they already know. 2 sentences max."
+                            )
+                            _greet_speech = f"Hey{_name_part} I'm Algsoch, your personal AI tutor! Let's master {_live_topic} — tell me what you already know!"
+                        elif _is_teach_mode:
+                            _greeting_prompt = (
+                                f"A learner named {_learner_name or 'the student'} wants tutoring. "
+                                f"Greet them by name. Introduce yourself as Alagsoch, personal AI tutor. "
+                                f"Ask what subject they want to learn today. 2 sentences max."
+                            )
+                            _greet_speech = f"Hey{_name_part} I'm Algsoch, your AI tutor! What topic do you want to master today?"
+                        elif _live_topic:
+                            _greeting_prompt = (
+                                f"A learner named {_learner_name or 'the student'} just started a study session. "
+                                f"Greet them by name warmly. Introduce yourself as Alagsoch, their AI learning tutor. "
+                                f"Tell them you can see they're studying '{_live_topic}' and you'll ask questions "
+                                f"to help them understand it deeper. Keep it under 2 sentences."
+                            )
+                            _greet_speech = f"Hey{_name_part} I'm Algsoch, your AI tutor! I can see you're studying {_live_topic}. Let's dive in — I'll challenge you!"
+                        else:
+                            _greeting_prompt = (
+                                f"A learner named {_learner_name or 'the student'} just joined your tutoring session. "
+                                f"Greet them by name warmly. Introduce yourself as Alagsoch, their AI learning tutor. "
+                                f"Ask what topic or video they're studying today. Keep it under 2 sentences."
+                            )
+                            _greet_speech = f"Hey{_name_part} I'm Algsoch, your AI tutor! What are we learning today?"
                         MetricsBroadcaster.instance().push({"agent_speech": _greet_speech, "agent_action": "greeting"})
                         # Reset cooldown from greeting time — first question will fire ~25s after greeting
                         session.last_intervention_at = time.time()

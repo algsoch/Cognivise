@@ -13,6 +13,35 @@ import { useSessionStore } from './useSessionStore'
 const WS_URL = 'ws://localhost:8001/ws/metrics'
 const RECONNECT_DELAY = 3000
 
+// ── Browser TTS fallback (fires when Gemini WebRTC is unavailable) ──────────
+// Uses Web Speech API to speak agent_speech immediately so there's no lag.
+// Gemini's own WebRTC audio replaces this when connected.
+let _ttsUtterance = null
+let _ttsGeminiActive = false  // set true when Stream call audio arrives
+
+function browserSpeak(text) {
+  if (!text || typeof window === 'undefined' || !window.speechSynthesis) return
+  if (_ttsGeminiActive) return  // Gemini WebRTC is speaking — don't double up
+  window.speechSynthesis.cancel()
+  const u = new SpeechSynthesisUtterance(text.replace(/Algsoch/g, 'Alagsoch'))
+  u.rate  = 1.05
+  u.pitch = 1.0
+  // Prefer a natural-sounding voice if available
+  const voices = window.speechSynthesis.getVoices()
+  const preferred = voices.find(v =>
+    /Google US English|Samantha|Karen|Moira|en-US/i.test(v.name)
+  )
+  if (preferred) u.voice = preferred
+  _ttsUtterance = u
+  window.speechSynthesis.speak(u)
+}
+
+// Called by useStreamAudio when agent WebRTC audio starts playing
+export function setGeminiAudioActive(active) {
+  _ttsGeminiActive = active
+  if (active) window.speechSynthesis?.cancel()
+}
+
 /** Maps a raw backend snapshot → camelCase metric patch */
 function mapMetrics(raw) {
   const patch = {}
@@ -29,14 +58,14 @@ function mapMetrics(raw) {
     patch.restlessness        = raw.restlessness
     patch.backgroundMovement  = raw.restlessness   // alias for display
   }
+  if (raw.background_movement !== undefined) patch.backgroundMovement = raw.background_movement
   if (raw.head_pose_confidence !== undefined) patch.headPoseConfidence = raw.head_pose_confidence
   // Some processor versions emit yaw/pitch — derive confidence from those
   if (raw.head_yaw !== undefined && raw.head_pitch !== undefined) {
     patch.headYaw   = raw.head_yaw
     patch.headPitch = raw.head_pitch
-    // confidence = 1 when looking straight, 0 when extreme angle
     patch.headPoseConfidence = Math.max(0, 1 - (Math.abs(raw.head_yaw) + Math.abs(raw.head_pitch)) / 90)
-    // Derive gaze direction from head angles
+    // Derive gaze direction from head angles (overridden below if backend sends it)
     const yaw = raw.head_yaw, pitch = raw.head_pitch
     if (Math.abs(yaw) < 8 && Math.abs(pitch) < 8) patch.gazeDirection = 'center'
     else if (yaw > 12)  patch.gazeDirection = 'right'
@@ -55,6 +84,9 @@ function mapMetrics(raw) {
   if (raw.eye_closure_duration !== undefined) patch.eyeClosureDuration = raw.eye_closure_duration
   if (raw.people_count        !== undefined) patch.peopleCount        = raw.people_count
   if (raw.gaze_direction      !== undefined) patch.gazeDirection      = raw.gaze_direction
+  // Latency tracking (milliseconds)
+  if (raw.user_response_ms    !== undefined) patch.userResponseMs     = raw.user_response_ms
+  if (raw.ai_response_ms      !== undefined) patch.aiResponseMs       = raw.ai_response_ms
 
   return patch
 }
@@ -120,11 +152,11 @@ export function useBackendConnection() {
             }
           }
 
-          // Agent speech: Gemini Realtime WebRTC handles audio — we only display the text.
-          // DO NOT call window.speechSynthesis here — that caused double-audio echo
-          // because Gemini was already speaking via the WebRTC audio track in useStreamAudio.
+          // Agent speech: display text + fire browser TTS immediately as fallback
+          // (Gemini WebRTC audio is preferred when connected — setGeminiAudioActive suppresses TTS)
           if (raw.agent_speech) {
             setAgentSpeech(raw.agent_speech)
+            browserSpeak(raw.agent_speech)  // instant TTS — no Gemini lag
             // Log to conversation history (deduped below)
             addConversationEntry('ai', raw.agent_speech, raw.agent_action ?? null)
           }

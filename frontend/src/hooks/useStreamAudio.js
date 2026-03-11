@@ -14,6 +14,7 @@
 
 import { useEffect, useRef } from 'react'
 import { useSessionStore } from './useSessionStore'
+import { setGeminiAudioActive } from './useBackendConnection'
 
 const API_BASE = 'http://localhost:8001'
 
@@ -163,6 +164,8 @@ export function useStreamAudio() {
               document.body.appendChild(el)
               sdkRef.current.audioEls.set(key, el)
               console.log('[useStreamAudio] 🔊 Agent audio attached for', p.userId, '— stream tracks:', stream.getTracks().length)
+              // Gemini WebRTC audio is live — suppress browser TTS fallback
+              setGeminiAudioActive(true)
             }
             if (el.srcObject !== stream) {
               el.srcObject = stream
