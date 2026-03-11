@@ -16,8 +16,9 @@ const RECONNECT_DELAY = 3000
 // ── Browser TTS fallback (fires when Gemini WebRTC is unavailable) ──────────
 // Uses Web Speech API to speak agent_speech immediately so there's no lag.
 // Gemini's own WebRTC audio replaces this when connected.
-let _ttsUtterance = null
+let _ttsUtterance    = null
 let _ttsGeminiActive = false  // set true when Stream call audio arrives
+let _aiTimerStart    = 0      // set when learner_message sent; cleared on agent_speech
 
 function browserSpeak(text) {
   if (!text || typeof window === 'undefined' || !window.speechSynthesis) return
@@ -84,9 +85,9 @@ function mapMetrics(raw) {
   if (raw.eye_closure_duration !== undefined) patch.eyeClosureDuration = raw.eye_closure_duration
   if (raw.people_count        !== undefined) patch.peopleCount        = raw.people_count
   if (raw.gaze_direction      !== undefined) patch.gazeDirection      = raw.gaze_direction
-  // Latency tracking (milliseconds)
-  if (raw.user_response_ms    !== undefined) patch.userResponseMs     = raw.user_response_ms
-  if (raw.ai_response_ms      !== undefined) patch.aiResponseMs       = raw.ai_response_ms
+  // Latency tracking (milliseconds) — only overwrite if backend sends a real measurement (> 0)
+  if (raw.user_response_ms > 0) patch.userResponseMs = raw.user_response_ms
+  if (raw.ai_response_ms   > 0) patch.aiResponseMs   = raw.ai_response_ms
 
   return patch
 }
@@ -126,8 +127,15 @@ export function useBackendConnection() {
       ws.onopen = () => {
         if (!mountedRef.current) { ws.close(); return }
         setAgentStatus('connected')
-        setSendMessage((text) => ws.send(JSON.stringify({ learner_message: text })))
-        setSendRaw((obj) => ws.send(JSON.stringify(obj)))
+        setSendMessage((text) => {
+          ws.send(JSON.stringify({ learner_message: text }))
+          _aiTimerStart = Date.now()
+        })
+        setSendRaw((obj) => {
+          ws.send(JSON.stringify(obj))
+          // Track AI response time for any message that contains learner text
+          if (obj && obj.learner_message) _aiTimerStart = Date.now()
+        })
       }
 
       ws.onmessage = (evt) => {
@@ -155,6 +163,12 @@ export function useBackendConnection() {
           // Agent speech: display text + fire browser TTS immediately as fallback
           // (Gemini WebRTC audio is preferred when connected — setGeminiAudioActive suppresses TTS)
           if (raw.agent_speech) {
+            // Measure how long AI took to respond (from learner message to AI reply)
+            if (_aiTimerStart > 0) {
+              const aiMs = Date.now() - _aiTimerStart
+              _aiTimerStart = 0
+              updateMetrics({ aiResponseMs: aiMs })
+            }
             setAgentSpeech(raw.agent_speech)
             browserSpeak(raw.agent_speech)  // instant TTS — no Gemini lag
             // Log to conversation history (deduped below)

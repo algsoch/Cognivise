@@ -23,6 +23,7 @@ import LatencyGraph from '../components/LatencyGraph'
 import { useBackendConnection } from '../hooks/useBackendConnection'
 import { useStreamAudio } from '../hooks/useStreamAudio'
 import { useWebcamAnalysis } from '../hooks/useWebcamAnalysis'
+import { useBrowserSTT } from '../hooks/useBrowserSTT'
 
 // ── AI Chat Content (used when mode = 'ai_chat') ────────────────────────────
 function AIChatContent({ label }) {
@@ -707,6 +708,8 @@ export default function SessionPage() {
   useStreamAudio()
   // Direct webcam→backend frame analysis (bypasses Stream WebRTC)
   useWebcamAnalysis()
+  // Browser-native microphone STT fallback (fires when Gemini WebRTC STT unavailable)
+  useBrowserSTT()
 
 
   // Screen capture — triggered by user button click.

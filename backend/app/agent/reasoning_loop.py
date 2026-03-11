@@ -605,8 +605,9 @@ class ReasoningLoop:
             correct=tm.correct,
         )
         # Push mastery update so the frontend MasteryTracker refreshes
-        MetricsBroadcaster.instance().push({
-            "mastery": {topic: round(tm.mastery_score, 1)},
-            "ai_response_ms": _ai_response_ms,
-            "user_response_ms": round(response_delay_ms),
-        })
+        _latency_patch = {"mastery": {topic: round(tm.mastery_score, 1)},
+                          "ai_response_ms": _ai_response_ms}
+        # Only send user latency if it was actually measured (>0)
+        if response_delay_ms > 0:
+            _latency_patch["user_response_ms"] = round(response_delay_ms)
+        MetricsBroadcaster.instance().push(_latency_patch)
