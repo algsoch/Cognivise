@@ -359,6 +359,7 @@ class ReasoningLoop:
                         recent_context=context,
                         question_type="comprehension",
                         learner_name=_name or None,
+                        video_transcript=session.video_transcript or None,
                     )
                     question_text = q_data.get("question") or f"Quick check{_name_addr} — what's one key thing you've learned about {topic} just now?"
                     await self._speak(question_text)
@@ -442,6 +443,7 @@ class ReasoningLoop:
                     recent_context=context,
                     question_type="recall",
                     learner_name=_name or None,
+                    video_transcript=session.video_transcript or None,
                 )
                 question_text = q_data.get("question") or f"Hey{_name_addr} — can you explain what you know about {topic}?"
                 self._pending_question = q_data
@@ -464,6 +466,7 @@ class ReasoningLoop:
                     recent_context=context,
                     question_type="application",
                     learner_name=_name or None,
+                    video_transcript=session.video_transcript or None,
                 )
                 self._pending_question = q_data
                 self._question_asked_at = time.time()

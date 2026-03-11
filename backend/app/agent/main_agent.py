@@ -382,6 +382,11 @@ async def join_call(
                             _name_from_cfg = _cfg.get("user_name") or None
                             if _name_from_cfg and not session.user_name:
                                 session.user_name = _name_from_cfg
+                            # Load video transcript from config so questions are content-based
+                            _transcript = _cfg.get("video_transcript") or ""
+                            if _transcript and not session.video_transcript:
+                                session.video_transcript = _transcript
+                                logger.info("Video transcript loaded into session: %d chars", len(_transcript))
                         except Exception:
                             pass
 

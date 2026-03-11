@@ -12,7 +12,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 
 function ytEmbedUrl(raw) {
   try {
-    const u = new URL(raw)
+    // Auto-add https:// if missing so youtu.be/xxx short URLs parse correctly
+    const normalized = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
+    const u = new URL(normalized)
     const base = 'rel=0&modestbranding=1&enablejsapi=1'
     if (u.hostname === 'youtu.be')
       return `https://www.youtube.com/embed${u.pathname}?${base}`
@@ -59,9 +61,11 @@ export default function LandingPage() {
   // a channel page URL) — channel names are brand IDs, not learning topics.
   const fetchYtTitle = async (url) => {
     if (!url.trim()) return
+    // Normalize: add https:// if missing so youtu.be/xyz short URLs work with oEmbed
+    const normalizedUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`
     try {
       const res = await fetch(
-        `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`
+        `https://www.youtube.com/oembed?url=${encodeURIComponent(normalizedUrl)}&format=json`
       )
       if (res.ok) {
         const data = await res.json()
@@ -144,6 +148,20 @@ export default function LandingPage() {
         call_id:       callId,
       }),
     }).catch(() => {})
+
+    // ── Fetch YouTube transcript so AI asks content-based questions ──────────
+    // Fire-and-forget: backend fetches transcript and stores in session config.
+    // The reasoning loop will pick it up when generating the first question.
+    if (sourceType === 'youtube' && ytUrl.trim()) {
+      const normalizedYtUrl = /^https?:\/\//i.test(ytUrl.trim()) ? ytUrl.trim() : `https://${ytUrl.trim()}`
+      fetch(`/api/youtube-transcript?url=${encodeURIComponent(normalizedYtUrl)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.ok) console.info('[Transcript] Loaded', data.length, 'chars for', data.video_id)
+          else console.warn('[Transcript] Not available:', data.error)
+        })
+        .catch(() => {})
+    }
 
     if (contentSourceObj) setContentSource(contentSourceObj)
     navigate('/session')

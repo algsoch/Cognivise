@@ -31,3 +31,4 @@ asyncio-throttle>=1.0.2
 # Dev
 uvicorn[standard]>=0.30.6
 fastapi>=0.112.2      # for token endpoint + health check
+youtube-transcript-api>=1.0.0

@@ -65,7 +65,7 @@ export function useBrowserSTT() {
 
           // Update UI immediately (don't wait for backend echo)
           setLearnerSpeech(text)
-          addConversationEntry('learner', text)
+          addConversationEntry('user', text)
           if (userMs > 0) updateMetrics({ userResponseMs: userMs })
 
           interim = ''

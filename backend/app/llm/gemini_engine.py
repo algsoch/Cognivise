@@ -279,44 +279,62 @@ class GeminiEngine:
         recent_context: str,
         question_type: str = "recall",
         learner_name: Optional[str] = None,
+        video_transcript: Optional[str] = None,
     ) -> dict:
         """Generate an adaptive question via Gemini. Returns same shape as ClaudeEngine.
-        Caches results per (topic, difficulty, question_type) for 10 minutes to reduce API calls."""
-        import json as _json, time as _time
+        Caches up to 5 per (topic, difficulty, question_type) to provide variety."""
+        import json as _json, time as _time, random as _random
         difficulty = _mastery_to_difficulty(mastery_score)
 
-        # Check cache first — avoid regenerating the same question repeatedly
+        # Check cache — keep up to 5 different questions per key, rotate randomly
         _cache_key = (topic.lower()[:50], difficulty, question_type)
         with _CACHE_LOCK:
             if _cache_key in _QUESTION_CACHE:
-                _cached, _cached_at = _QUESTION_CACHE[_cache_key]
-                if _time.time() - _cached_at < _CACHE_TTL:
-                    logger.debug("Question cache hit for %s/%s", topic, difficulty)
-                    return _cached
+                _variants, _cached_at = _QUESTION_CACHE[_cache_key]
+                if _time.time() - _cached_at < _CACHE_TTL and len(_variants) >= 3:
+                    return _random.choice(_variants)
 
         _name_hint = f" Address the learner as '{learner_name}'." if learner_name else ""
+        # Use video transcript as the primary knowledge source if available
+        _transcript_hint = ""
+        if video_transcript:
+            # Give Gemini a snippet of the actual video content so questions are content-based
+            _snippet = video_transcript[:1500]
+            _transcript_hint = (
+                f"\nVideo content (ask about what is actually discussed):\n{_snippet}\n"
+                "Questions MUST be based on the above video content, not just the topic title."
+            )
+
         prompt = (
             f"You are an adaptive learning tutor. Generate ONE {question_type} question about {topic}.\n"
             f"Difficulty: {difficulty}\n"
-            f"Recent context: {recent_context[-500:] if recent_context else 'none'}\n"
-            f"Make the question feel natural and conversational, not like a formal exam.{_name_hint}\n\n"
+            f"Recent conversation: {recent_context[-400:] if recent_context else 'none'}\n"
+            f"{_transcript_hint}"
+            f"Make the question feel natural and conversational, not like a formal exam.{_name_hint}\n"
+            "Generate a UNIQUE question — different from any you have asked before.\n\n"
             "Return ONLY valid JSON (no markdown):\n"
             '{"question": "<question text>", "expected_answer_points": ["<key point>"], '
             '"difficulty": "' + difficulty + '", "hint": "<optional hint>"}'
         )
         raw = await self._text(prompt, max_tokens=300)
         if not raw:
-            result = _question_fallback(topic, difficulty)
-            # Do NOT cache fallbacks — try again next time
-            return result
+            return _question_fallback(topic, difficulty)
         try:
             text = raw.strip().lstrip("`").split("```")[0] if "```" in raw else raw.strip()
             if text.startswith("```"):
                 text = "\n".join(text.split("\n")[1:-1])
             result = _json.loads(text)
-            # Cache successful result
+            # Cache: store up to 5 variants per key so questions are varied
             with _CACHE_LOCK:
-                _QUESTION_CACHE[_cache_key] = (result, _time.time())
+                if _cache_key in _QUESTION_CACHE:
+                    _variants, _at = _QUESTION_CACHE[_cache_key]
+                    if result not in _variants:
+                        _variants.append(result)
+                        if len(_variants) > 5:
+                            _variants.pop(0)
+                        _QUESTION_CACHE[_cache_key] = (_variants, _at)
+                else:
+                    _QUESTION_CACHE[_cache_key] = ([result], _time.time())
             return result
         except Exception:
             # If JSON fails, use the raw text as the question (still cache it)

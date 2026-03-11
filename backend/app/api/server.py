@@ -110,6 +110,10 @@ async def trigger_join(request: Request):
     user_name  = body.get("user_name") or ""
     user_email = body.get("user_email") or ""
 
+    # ── RESET stale config from previous session ───────────────────────────
+    # Each /api/join is a brand-new session — don't carry over topic/transcript from last one
+    _pending_session_config.clear()
+
     # Store for the reasoning loop to pick up
     if topic:
         _pending_session_config["topic"] = topic
@@ -243,15 +247,11 @@ async def get_stream_token(user_id: str = "learner"):
 
 @app.post("/api/session/config")
 async def set_session_config(request: Request):
-    """
-    Called by the frontend when the learner starts a session.
-    Stores topic / user_id so the agent can pick them up on next join
-    or update the live session mid-flight via a broadcast.
-    """
+    """Called by the frontend when the learner starts a session."""
     global _pending_session_config
     body = await request.json()
     _pending_session_config.update(body)
-    logger.info("Session config updated: %s", body)
+    logger.info("Session config updated: %s", {k: v for k, v in body.items() if k != 'video_transcript'})
 
     # Only use an explicit topic (user-provided) as current_topic.
     # content_label is the raw YouTube/video title — it stays in pending config as
@@ -271,6 +271,64 @@ async def set_session_config(request: Request):
             logger.info("content_label stored as context (not broadcast as topic): %s", content_label)
 
     return {"ok": True, "config": _pending_session_config}
+
+
+@app.get("/api/youtube-transcript")
+async def get_youtube_transcript(url: str):
+    """
+    Fetch the transcript for a YouTube video.
+    Accepts full URLs (youtube.com/watch?v=) or short URLs (youtu.be/ID).
+    Returns cleaned text with timestamps stripped.
+    """
+    import re as _re
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+    except ImportError:
+        return {"ok": False, "error": "youtube-transcript-api not installed"}
+
+    # Extract video ID from any YouTube URL format
+    video_id = None
+    try:
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(url)
+        if parsed.hostname in ("youtu.be",):
+            video_id = parsed.path.lstrip("/").split("?")[0]
+        elif parsed.hostname in ("www.youtube.com", "youtube.com"):
+            if parsed.path.startswith("/embed/"):
+                video_id = parsed.path.split("/embed/")[1].split("?")[0]
+            else:
+                qs = parse_qs(parsed.query)
+                video_id = (qs.get("v") or [None])[0]
+    except Exception:
+        pass
+
+    # Fallback: bare 11-char video ID
+    if not video_id:
+        m = _re.search(r"[a-zA-Z0-9_-]{11}", url)
+        if m:
+            video_id = m.group()
+
+    if not video_id:
+        return {"ok": False, "error": f"Could not extract video ID from: {url}"}
+
+    try:
+        # Try English first, then auto-generated, then any available
+        fetched = YouTubeTranscriptApi.get_transcript(video_id, languages=["en", "en-US", "en-GB"])
+        # Concatenate into a single clean text string
+        raw_text = " ".join(entry["text"] for entry in fetched)
+        # Remove music/sound cues like [Music] [Applause]
+        clean_text = _re.sub(r"\[[^\]]+\]", "", raw_text)
+        clean_text = _re.sub(r"\s+", " ", clean_text).strip()
+        # Truncate to 8000 chars to fit in Gemini context without overflowing
+        if len(clean_text) > 8000:
+            clean_text = clean_text[:8000] + "..."
+        logger.info("Fetched YouTube transcript for %s: %d chars", video_id, len(clean_text))
+        # Also inject into pending session config so reasoning loop picks it up immediately
+        _pending_session_config["video_transcript"] = clean_text
+        return {"ok": True, "video_id": video_id, "transcript": clean_text, "length": len(clean_text)}
+    except Exception as e:
+        logger.warning("Transcript fetch failed for %s: %s", video_id, e)
+        return {"ok": False, "error": str(e), "video_id": video_id}
 
 
 @app.post("/api/analyze-frame")

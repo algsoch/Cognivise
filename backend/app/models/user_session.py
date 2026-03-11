@@ -70,6 +70,9 @@ class UserSession:
     # Transcript buffer for context
     transcript_buffer: List[str] = field(default_factory=list)
 
+    # Video transcript fetched from YouTube — used to ask content-based questions
+    video_transcript: str = ""
+
     def record_state(self, snapshot: LearningStateSnapshot) -> None:
         self.current_state = snapshot
         self.state_history.append(snapshot)

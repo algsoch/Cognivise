@@ -22,15 +22,20 @@ const FRAME_WIDTH       = 320   // scale down before sending (saves bandwidth)
 const FRAME_HEIGHT      = 240
 
 export function useWebcamAnalysis() {
-  const isInSession = useSessionStore((s) => s.isInSession)
-  const streamRef   = useRef(null)
-  const canvasRef   = useRef(null)
-  const timerRef    = useRef(null)
-  const busyRef     = useRef(false)   // don't queue frames if last one is still in-flight
+  const isInSession  = useSessionStore((s) => s.isInSession)
+  const updateMetrics = useSessionStore((s) => s.updateMetrics)
+  const streamRef    = useRef(null)
+  const canvasRef    = useRef(null)
+  const timerRef     = useRef(null)
+  const busyRef      = useRef(false)   // don't queue frames if last one is still in-flight
+  const fpsCountRef  = useRef(0)       // frames successfully sent this second
+  const fpsTimerRef  = useRef(null)    // 1-second FPS publish interval
 
   const stopCapture = useCallback(() => {
     clearInterval(timerRef.current)
+    clearInterval(fpsTimerRef.current)
     timerRef.current = null
+    fpsTimerRef.current = null
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop())
       streamRef.current = null
@@ -83,6 +88,7 @@ export function useWebcamAnalysis() {
               // short timeout so stale frames don't back up
               signal: AbortSignal.timeout(2000),
             })
+            fpsCountRef.current++  // count successful frame deliveries
             // Response is also broadcast via WS — we don't need to parse it here
           } catch {
             // Ignore individual frame errors (network hiccup, backend not ready yet)
@@ -90,6 +96,12 @@ export function useWebcamAnalysis() {
             busyRef.current = false
           }
         }, FRAME_INTERVAL_MS)
+
+        // Publish FPS every second so VideoProgressGraph can display it
+        fpsTimerRef.current = setInterval(() => {
+          updateMetrics({ frameFps: fpsCountRef.current })
+          fpsCountRef.current = 0
+        }, 1000)
 
       } catch (err) {
         if (!cancelled) console.warn('[useWebcamAnalysis] webcam access failed:', err?.message)

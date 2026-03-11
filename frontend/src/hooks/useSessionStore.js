@@ -31,6 +31,11 @@ const initialMetrics = {
   // Latency tracking (milliseconds)
   userResponseMs: 0,     // how fast learner responded to last question
   aiResponseMs: 0,       // how fast AI answered learner's input
+  // Webcam analysis FPS
+  frameFps: 0,           // frames per second successfully analyzed
+  // Video playback progress
+  videoCurrentTime: 0,   // seconds elapsed in current video
+  videoDuration: 0,      // total video duration in seconds
 }
 
 export const useSessionStore = create(

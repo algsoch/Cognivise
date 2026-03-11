@@ -24,6 +24,8 @@ import { useBackendConnection } from '../hooks/useBackendConnection'
 import { useStreamAudio } from '../hooks/useStreamAudio'
 import { useWebcamAnalysis } from '../hooks/useWebcamAnalysis'
 import { useBrowserSTT } from '../hooks/useBrowserSTT'
+import { useVideoProgress } from '../hooks/useVideoProgress'
+import VideoProgressGraph from '../components/VideoProgressGraph'
 
 // ── AI Chat Content (used when mode = 'ai_chat') ────────────────────────────
 function AIChatContent({ label }) {
@@ -710,6 +712,8 @@ export default function SessionPage() {
   useWebcamAnalysis()
   // Browser-native microphone STT fallback (fires when Gemini WebRTC STT unavailable)
   useBrowserSTT()
+  // Track YouTube video playback progress (currentTime / duration)
+  useVideoProgress(contentRef, contentSource?.type === 'youtube')
 
 
   // Screen capture — triggered by user button click.
@@ -888,6 +892,7 @@ export default function SessionPage() {
           <CognitiveLoadIndicator score={metrics.cognitiveLoadScore} />
           <AttentionWaveform />
           <LatencyGraph />
+          <VideoProgressGraph />
           <EyeTrackingPanel />
           <MasteryTracker />
           <InterventionFeed />
