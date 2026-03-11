@@ -19,6 +19,15 @@ const initialMetrics = {
   headPoseConfidence: 1,
   focusDuration: 0,
   distractionCount: 0,
+  // Eye tracking
+  headYaw: 0,
+  headPitch: 0,
+  eyeAR: 0.3,            // Eye Aspect Ratio (0 = closed, ~0.3 = open)
+  fixationDuration: 0,   // seconds eyes have been fixated on screen
+  eyeClosureDuration: 0, // seconds this blink lasted
+  backgroundMovement: 0, // restlessness 0–1
+  peopleCount: 0,        // number of faces detected in frame
+  gazeDirection: 'center', // center | left | right | up | down | away
 }
 
 export const useSessionStore = create(

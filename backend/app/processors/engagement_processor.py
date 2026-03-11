@@ -120,6 +120,17 @@ class EngagementProcessor(VideoProcessor):
         self._blink_window_start: float = time.time()
         self._blink_rate: float = 15.0  # blinks/min
 
+        # Eye-closure duration tracking
+        self._eye_closed_since: Optional[float] = None    # epoch when eye closed
+        self._eye_closure_duration: float = 0.0           # seconds of current/last closure
+
+        # Fixation duration (continuous gaze-on-screen streak)
+        self._fixation_start: Optional[float] = None
+        self._fixation_duration: float = 0.0
+
+        # Latest EAR value for display
+        self._latest_ear: float = 0.3
+
         # Motion / restlessness
         self._prev_gray: Optional[np.ndarray] = None
         self._motion_buffer: Deque[float] = deque(maxlen=30)
@@ -136,7 +147,7 @@ class EngagementProcessor(VideoProcessor):
                 _opts_kwargs = dict(
                     base_options=_MPBaseOptions(model_asset_path=str(_FACE_MODEL)),
                     running_mode=_FaceRunningMode.IMAGE,
-                    num_faces=1,
+                    num_faces=5,                 # detect up to 5 people for people_count
                     output_face_blendshapes=True,
                     output_facial_transformation_matrixes=False,
                     min_face_detection_confidence=0.5,
@@ -196,16 +207,34 @@ class EngagementProcessor(VideoProcessor):
                     EngagementUpdatedEvent(signal=signal, engagement_score=score)
                 )
 
+            # Derive gaze direction from head yaw/pitch
+            yaw, pitch = signal.head_yaw, signal.head_pitch
+            if abs(yaw) < 8 and abs(pitch) < 8:
+                gaze_dir = "center"
+            elif yaw > 12:    gaze_dir = "right"
+            elif yaw < -12:   gaze_dir = "left"
+            elif pitch < -10: gaze_dir = "up"
+            elif pitch > 10:  gaze_dir = "down"
+            else:              gaze_dir = "center"
+            if not signal.gaze_on_screen:
+                gaze_dir = "away"
+
             # Push rich face data to metrics broadcaster → frontend
             MetricsBroadcaster.instance().push({
-                "face_detected": signal.face_detected,
-                "gaze_on_screen": signal.gaze_on_screen,
-                "blink_rate": round(signal.blink_rate, 1),
-                "restlessness": round(signal.restlessness_score, 3),
+                "face_detected"       : signal.face_detected,
+                "gaze_on_screen"      : signal.gaze_on_screen,
+                "blink_rate"          : round(signal.blink_rate, 1),
+                "restlessness"        : round(signal.restlessness_score, 3),
+                "background_movement" : round(signal.restlessness_score, 3),
                 "head_pose_confidence": round(signal.head_pose_confidence, 2),
-                "engagement_score": round(score, 1),
-                "head_yaw": round(signal.head_yaw, 1),
-                "head_pitch": round(signal.head_pitch, 1),
+                "engagement_score"    : round(score, 1),
+                "head_yaw"            : round(signal.head_yaw, 1),
+                "head_pitch"          : round(signal.head_pitch, 1),
+                "eye_ar"              : round(self._latest_ear, 3),
+                "fixation_duration"   : round(self._fixation_duration, 1),
+                "eye_closure_duration": round(self._eye_closure_duration, 2),
+                "gaze_direction"      : gaze_dir,
+                "people_count"        : getattr(self, '_people_count', 0),
             })
         except Exception as exc:
             logger.debug("EngagementProcessor frame error: %s", exc)
@@ -286,20 +315,36 @@ class EngagementProcessor(VideoProcessor):
         result = self._face_landmarker.detect(mp_image)
 
         if not result.face_landmarks:
+            self._people_count = 0
+            # Reset fixation when face lost
+            self._fixation_start = None
+            self._fixation_duration = 0.0
             return EngagementSignal(face_detected=False, restlessness_score=restlessness)
 
+        # Track number of people detected
+        self._people_count = len(result.face_landmarks)
         lm = result.face_landmarks[0]
         face_detected = True
 
         # ── EAR blink ─────────────────────────────────────────────────────
         ear = self._ear_tasks(lm, w, h)
+        self._latest_ear = ear
         now = time.time()
-        if ear < _EAR_THRESHOLD:
+        eye_closed = ear < _EAR_THRESHOLD
+
+        if eye_closed:
             self._ear_below_thresh_count += 1
+            # Start eye closure timer
+            if self._eye_closed_since is None:
+                self._eye_closed_since = now
         else:
             if self._ear_below_thresh_count >= _EAR_CONSEC_FRAMES:
                 self._blink_count += 1
+                # Record how long the eye was closed
+                if self._eye_closed_since is not None:
+                    self._eye_closure_duration = now - self._eye_closed_since
             self._ear_below_thresh_count = 0
+            self._eye_closed_since = None
 
         elapsed = now - self._blink_window_start
         if elapsed >= 10.0:
@@ -309,6 +354,14 @@ class EngagementProcessor(VideoProcessor):
 
         # ── Gaze ──────────────────────────────────────────────────────────
         gaze_on_screen = self._estimate_gaze_tasks(lm)
+        # Track fixation duration (continuous on-screen gaze streak)
+        if gaze_on_screen:
+            if self._fixation_start is None:
+                self._fixation_start = now
+            self._fixation_duration = now - self._fixation_start
+        else:
+            self._fixation_start = None
+            self._fixation_duration = 0.0
 
         # ── Head pose (yaw / pitch) via nose tip vs eye midpoint ──────────
         # Landmark 1 = nose tip, 33 = left eye outer, 263 = right eye outer

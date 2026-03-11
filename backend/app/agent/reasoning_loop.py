@@ -149,6 +149,14 @@ class ReasoningLoop:
         """Single reasoning cycle."""
         session = self._session
 
+        # Safety guard: if topic was accidentally set to the user's own name
+        # (happens when a YouTube channel URL is used instead of a content URL),
+        # clear it so the extraction logic can try again.
+        if session.current_topic and session.user_name:
+            if session.current_topic.strip().lower() == session.user_name.strip().lower():
+                session.current_topic = None
+                logger.info("Topic reset — was same as user_name '%s'", session.user_name)
+
         # Sync topic from session config if not yet set (user may have posted it
         # via /api/session/config after the agent already joined)
         if not session.current_topic or _is_generic_label(session.current_topic):

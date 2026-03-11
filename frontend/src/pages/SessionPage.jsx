@@ -18,6 +18,7 @@ import MasteryTracker from '../components/MasteryTracker'
 import InterventionFeed from '../components/InterventionFeed'
 import FaceMonitorOverlay from '../components/FaceMonitorOverlay'
 import AIAgentPanel from '../components/AIAgentPanel'
+import EyeTrackingPanel from '../components/EyeTrackingPanel'
 import { useBackendConnection } from '../hooks/useBackendConnection'
 import { useStreamAudio } from '../hooks/useStreamAudio'
 
@@ -879,6 +880,7 @@ export default function SessionPage() {
           </div>
           <CognitiveLoadIndicator score={metrics.cognitiveLoadScore} />
           <AttentionWaveform />
+          <EyeTrackingPanel />
           <MasteryTracker />
           <InterventionFeed />
         </div>

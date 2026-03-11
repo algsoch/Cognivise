@@ -25,7 +25,10 @@ function mapMetrics(raw) {
   if (raw.face_detected       !== undefined) patch.faceDetected       = raw.face_detected
   if (raw.gaze_on_screen      !== undefined) patch.gazeOnScreen       = raw.gaze_on_screen
   if (raw.blink_rate          !== undefined) patch.blinkRate          = raw.blink_rate
-  if (raw.restlessness        !== undefined) patch.restlessness       = raw.restlessness
+  if (raw.restlessness        !== undefined) {
+    patch.restlessness        = raw.restlessness
+    patch.backgroundMovement  = raw.restlessness   // alias for display
+  }
   if (raw.head_pose_confidence !== undefined) patch.headPoseConfidence = raw.head_pose_confidence
   // Some processor versions emit yaw/pitch — derive confidence from those
   if (raw.head_yaw !== undefined && raw.head_pitch !== undefined) {
@@ -33,11 +36,25 @@ function mapMetrics(raw) {
     patch.headPitch = raw.head_pitch
     // confidence = 1 when looking straight, 0 when extreme angle
     patch.headPoseConfidence = Math.max(0, 1 - (Math.abs(raw.head_yaw) + Math.abs(raw.head_pitch)) / 90)
+    // Derive gaze direction from head angles
+    const yaw = raw.head_yaw, pitch = raw.head_pitch
+    if (Math.abs(yaw) < 8 && Math.abs(pitch) < 8) patch.gazeDirection = 'center'
+    else if (yaw > 12)  patch.gazeDirection = 'right'
+    else if (yaw < -12) patch.gazeDirection = 'left'
+    else if (pitch < -10) patch.gazeDirection = 'up'
+    else if (pitch >  10) patch.gazeDirection = 'down'
+    else patch.gazeDirection = 'center'
   }
   if (raw.focus_duration      !== undefined) patch.focusDuration      = raw.focus_duration
   if (raw.distraction_count   !== undefined) patch.distractionCount   = raw.distraction_count
   if (raw.confusion_indicators !== undefined) patch.confusionIndicators = raw.confusion_indicators
   if (raw.recent_mistakes     !== undefined) patch.recentMistakes     = raw.recent_mistakes
+  // Eye tracking
+  if (raw.eye_ar              !== undefined) patch.eyeAR              = raw.eye_ar
+  if (raw.fixation_duration   !== undefined) patch.fixationDuration   = raw.fixation_duration
+  if (raw.eye_closure_duration !== undefined) patch.eyeClosureDuration = raw.eye_closure_duration
+  if (raw.people_count        !== undefined) patch.peopleCount        = raw.people_count
+  if (raw.gaze_direction      !== undefined) patch.gazeDirection      = raw.gaze_direction
 
   return patch
 }
