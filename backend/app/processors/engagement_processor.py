@@ -131,6 +131,9 @@ class EngagementProcessor(VideoProcessor):
         # Latest EAR value for display
         self._latest_ear: float = 0.3
 
+        # People count (updated each frame)
+        self._people_count: int = 0
+
         # Motion / restlessness
         self._prev_gray: Optional[np.ndarray] = None
         self._motion_buffer: Deque[float] = deque(maxlen=30)

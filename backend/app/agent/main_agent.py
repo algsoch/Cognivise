@@ -191,8 +191,11 @@ async def join_call(
     reasoning.set_processors(eng_proc, att_proc, cog_proc)
 
     # Register reasoning loop with server so typed frontend messages reach it
-    from backend.app.api.server import set_reasoning_loop, clear_reasoning_loop
+    from backend.app.api.server import set_reasoning_loop, clear_reasoning_loop, set_engagement_processor
     set_reasoning_loop(reasoning)
+    # Register processor so /api/analyze-frame can run vision analysis directly
+    if eng_proc:
+        set_engagement_processor(eng_proc)
 
     # ── START REASONING LOOP IMMEDIATELY ───────────────────────────────────────
     # Do NOT wait for agent.join() (Stream WebRTC) — that can hang or fail.

@@ -41,6 +41,18 @@ def clear_reasoning_loop() -> None:
     global _active_reasoning_loop
     _active_reasoning_loop = None
 
+# ── Engagement processor reference — set by main_agent so /api/analyze-frame
+# can run face analysis on frames sent directly from the browser (bypasses
+# the Stream WebRTC path which often fails to deliver frames to the agent).
+_active_eng_processor = None
+
+def set_engagement_processor(proc) -> None:
+    global _active_eng_processor
+    _active_eng_processor = proc
+
+def get_engagement_processor():
+    return _active_eng_processor
+
 # ── AgentLauncher reference — set by main.py after launcher is initialised ──
 # The /api/join endpoint uses this to trigger launcher.start_session()
 _launcher = None
@@ -259,6 +271,81 @@ async def set_session_config(request: Request):
             logger.info("content_label stored as context (not broadcast as topic): %s", content_label)
 
     return {"ok": True, "config": _pending_session_config}
+
+
+@app.post("/api/analyze-frame")
+async def analyze_frame(request: Request):
+    """
+    Receive a base64-encoded JPEG frame from the frontend webcam,
+    run it through the EngagementProcessor vision pipeline, and
+    return + broadcast computed metrics immediately.
+
+    This bypasses the Stream WebRTC path which is unreliable for
+    getting frames into the Vision Agents processor.
+
+    Body: { "frame": "<base64 JPEG>", "width": int, "height": int }
+    """
+    import base64
+    import numpy as np
+
+    proc = _active_eng_processor
+    if proc is None:
+        return {"ok": False, "reason": "processor not ready"}
+
+    try:
+        body = await request.json()
+        b64 = body.get("frame", "")
+        if not b64:
+            return {"ok": False, "reason": "no frame"}
+
+        # Decode JPEG bytes → RGB numpy array
+        raw_bytes = base64.b64decode(b64.split(",")[-1])  # strip data-URL prefix
+        arr = np.frombuffer(raw_bytes, dtype=np.uint8)
+        import cv2
+        bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if bgr is None:
+            return {"ok": False, "reason": "decode failed"}
+        img_rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+        # Run full face / EAR / head-pose / motion analysis
+        signal = proc._analyse(img_rgb)
+        proc._latest_signal = signal
+        proc._latest_frame  = img_rgb
+        score = signal.to_score()
+
+        # Derive gaze direction
+        yaw, pitch = signal.head_yaw, signal.head_pitch
+        if not signal.gaze_on_screen:
+            gaze_dir = "away"
+        elif abs(yaw) < 8 and abs(pitch) < 8:
+            gaze_dir = "center"
+        elif yaw > 12:    gaze_dir = "right"
+        elif yaw < -12:   gaze_dir = "left"
+        elif pitch < -10: gaze_dir = "up"
+        elif pitch > 10:  gaze_dir = "down"
+        else:             gaze_dir = "center"
+
+        metrics = {
+            "face_detected"       : signal.face_detected,
+            "gaze_on_screen"      : signal.gaze_on_screen,
+            "blink_rate"          : round(signal.blink_rate, 1),
+            "restlessness"        : round(signal.restlessness_score, 3),
+            "background_movement" : round(signal.restlessness_score, 3),
+            "head_pose_confidence": round(signal.head_pose_confidence, 2),
+            "engagement_score"    : round(score, 1),
+            "head_yaw"            : round(signal.head_yaw, 1),
+            "head_pitch"          : round(signal.head_pitch, 1),
+            "eye_ar"              : round(proc._latest_ear, 3),
+            "fixation_duration"   : round(proc._fixation_duration, 1),
+            "eye_closure_duration": round(proc._eye_closure_duration, 3),
+            "gaze_direction"      : gaze_dir,
+            "people_count"        : proc._people_count,
+        }
+        MetricsBroadcaster.instance().push(metrics)
+        return {"ok": True, **metrics}
+    except Exception as exc:
+        logger.warning("analyze-frame error: %s", exc)
+        return {"ok": False, "reason": str(exc)}
 
 
 # ── Server runner ─────────────────────────────────────────────────────────────

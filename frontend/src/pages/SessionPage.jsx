@@ -22,6 +22,7 @@ import EyeTrackingPanel from '../components/EyeTrackingPanel'
 import LatencyGraph from '../components/LatencyGraph'
 import { useBackendConnection } from '../hooks/useBackendConnection'
 import { useStreamAudio } from '../hooks/useStreamAudio'
+import { useWebcamAnalysis } from '../hooks/useWebcamAnalysis'
 
 // ── AI Chat Content (used when mode = 'ai_chat') ────────────────────────────
 function AIChatContent({ label }) {
@@ -704,6 +705,8 @@ export default function SessionPage() {
   useBackendConnection()
   // Join the backend's Stream WebRTC call and play agent audio
   useStreamAudio()
+  // Direct webcam→backend frame analysis (bypasses Stream WebRTC)
+  useWebcamAnalysis()
 
 
   // Screen capture — triggered by user button click.
