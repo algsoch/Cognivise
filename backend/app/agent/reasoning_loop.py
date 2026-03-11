@@ -102,6 +102,10 @@ class ReasoningLoop:
         self._stable_frame_since: Optional[float] = None  # when current frame became stable
         self._screen_question_cooldown: float = 0.0    # don't ask screen questions too often
 
+        # 2-minute periodic comprehension check
+        self._last_periodic_question_at: float = time.time()   # tracks 2-min timer
+        self._periodic_question_interval: float = 120.0        # fire every 2 minutes
+
     def set_processors(self, engagement, attention, cognitive_load) -> None:
         self._eng_processor = engagement
         self._att_processor = attention
@@ -186,11 +190,12 @@ class ReasoningLoop:
         att_signal = self._att_processor.latest_signal if self._att_processor else AttentionSignal()
         cog_signal = self._cog_processor.latest_signal if self._cog_processor else CognitiveLoadSignal()
 
-        # ── Screen content analysis (every 30s) ──────────────────────────────
+        # ── Screen content analysis (every 90s) ──────────────────────────────
         # Grabs the latest video frame, extracts the on-screen topic via Gemini Flash,
         # and detects video pauses to fire comprehension questions automatically.
+        # 90s interval because the free-tier Gemini quota is shared with question gen.
         _now = time.time()
-        if self._eng_processor and (_now - self._last_screen_analysis_at) >= 30.0:
+        if self._eng_processor and (_now - self._last_screen_analysis_at) >= 90.0:
             frame = getattr(self._eng_processor, "latest_frame", None)
             if frame is not None:
                 # 1. Extract topic from what's on screen via Gemini Vision
@@ -312,16 +317,56 @@ class ReasoningLoop:
         _since_last_silence = time.time() - self._last_silence_checkin_at
         if _silence > 40.0 and _since_last_silence > 60.0:
             topic = self._last_screen_topic or session.current_topic
+            _name = session.user_name or ""
+            _name_addr = f" {_name}," if _name else ""
             silence_msg = (
-                f"You've gone quiet. Are you following so far?"
+                f"Hey{_name_addr} you've gone quiet. Are you following so far?"
                 if not topic or _is_generic_label(topic)
-                else f"You've gone quiet — tell me one thing you understand about {topic} so far."
+                else f"Hey{_name_addr} you've gone quiet — tell me one thing you understand about {topic} so far."
             )
             await self._speak(silence_msg)
             session.last_intervention_at = time.time()
             self._last_silence_checkin_at = time.time()
             MetricsBroadcaster.instance().push({"intervention_type": "check_in"})
             return
+
+        # ── 2-minute periodic comprehension check ────────────────────────────
+        # Every 2 minutes, ask a question specifically about what the learner
+        # is currently watching, regardless of learner state.  This is the
+        # "stay engaged and prove you're following" feature.
+        _now_t = time.time()
+        _since_periodic = _now_t - self._last_periodic_question_at
+        if _since_periodic >= self._periodic_question_interval and not self._pending_question:
+            topic = self._last_screen_topic or session.current_topic
+            if topic and not _is_generic_label(topic):
+                _name = session.user_name or ""
+                _name_addr = f" {_name}" if _name else ""
+                logger.info("⏱️  2-min periodic check — asking about: %s", topic)
+                try:
+                    context = session.get_recent_transcript(n=6)
+                    mastery = session.get_topic_mastery(topic).mastery_score
+                    q_data = await self._gemini.generate_question(
+                        topic=topic,
+                        mastery_score=mastery,
+                        recent_context=context,
+                        question_type="comprehension",
+                        learner_name=_name or None,
+                    )
+                    question_text = q_data.get("question") or f"Quick check{_name_addr} — what's one key thing you've learned about {topic} just now?"
+                    await self._speak(question_text)
+                    self._pending_question = q_data
+                    self._question_asked_at = _now_t
+                    self._last_periodic_question_at = _now_t
+                    session.last_intervention_at = _now_t
+                    MetricsBroadcaster.instance().push({
+                        "intervention_type": "periodic_check",
+                        "intervention_message": "Periodic comprehension check",
+                    })
+                    return
+                except Exception as _exc:
+                    logger.debug("Periodic question failed: %s", _exc)
+            # Reset timer even if no topic yet to avoid hammering on empty topic
+            self._last_periodic_question_at = _now_t
 
         # Guard 2: Cooldown between any two interventions
         since_last = time.time() - session.last_intervention_at
@@ -344,6 +389,10 @@ class ReasoningLoop:
         session = self._session
         # Use screen-detected topic if available; fall back to session topic.
         topic = self._last_screen_topic or session.current_topic
+
+        # Learner name for personalized messages
+        _name = session.user_name or ""
+        _name_addr = f" {_name}" if _name else ""
 
         # For ENGAGE and CHECK_IN, fire even without a topic.
         # For content-specific interventions (ASK_QUESTION, etc), need a topic.
@@ -384,20 +433,21 @@ class ReasoningLoop:
                     mastery_score=mastery,
                     recent_context=context,
                     question_type="recall",
+                    learner_name=_name or None,
                 )
-                question_text = q_data.get("question") or f"Can you explain what you know about {topic}?"
+                question_text = q_data.get("question") or f"Hey{_name_addr} — can you explain what you know about {topic}?"
                 self._pending_question = q_data
                 self._question_asked_at = time.time()
                 await self._speak(question_text)
 
             elif intervention == InterventionType.SIMPLIFY:
                 msg = await _primary.simplify_explanation(concept=topic, current_explanation=context)
-                await self._speak(f"Let me simplify this. {msg}")
+                await self._speak(f"Let me break that down for you{_name_addr}. {msg}")
 
             elif intervention == InterventionType.BREAK_DOWN:
                 sub_concepts = await _primary.break_down_concept(topic, context)
                 parts = ", ".join(sub_concepts[:3])
-                await self._speak(f"Let's break this down step by step. We'll cover: {parts}.")
+                await self._speak(f"Let's take this step by step{_name_addr}. We'll look at: {parts}.")
 
             elif intervention == InterventionType.INCREASE_DIFFICULTY:
                 q_data = await _primary.generate_question(
@@ -405,16 +455,18 @@ class ReasoningLoop:
                     mastery_score=90.0,
                     recent_context=context,
                     question_type="application",
+                    learner_name=_name or None,
                 )
                 self._pending_question = q_data
                 self._question_asked_at = time.time()
-                await self._speak(q_data.get("question") or "Here's a challenge question for you.")
+                await self._speak(q_data.get("question") or f"Nice work{_name_addr}! Here's a more challenging question.")
 
             elif intervention == InterventionType.ACTIVE_RECALL:
                 # Prefer screen-detected topic if available
                 recall_topic = self._last_screen_topic or topic
                 await self._speak(
-                    f"Let's test your recall. Tell me what you know about {recall_topic}."
+                    f"Quick recall check{_name_addr} — tell me in your own words what "
+                    f"{recall_topic} means to you so far."
                 )
                 self._question_asked_at = time.time()
                 self._pending_question = {
@@ -425,33 +477,35 @@ class ReasoningLoop:
 
             elif intervention == InterventionType.CHECK_IN:
                 # Use topic-aware message instead of generic "are you with me?"
-                if session.current_topic:
+                if session.current_topic and not _is_generic_label(session.current_topic):
                     await self._speak(
-                        f"How's your understanding of {session.current_topic} going so far? "
-                        f"Any parts that feel unclear or tricky?"
+                        f"How's it going{_name_addr}? How's your understanding of "
+                        f"{session.current_topic} — any parts that feel tricky?"
                     )
                 else:
                     await self._speak(
-                        "How are you finding this so far? "
-                        "Let me know if you'd like anything explained differently."
+                        f"How are you finding this so far{_name_addr}? "
+                        f"Let me know if you want anything explained differently."
                     )
 
             elif intervention == InterventionType.ENCOURAGEMENT:
-                await self._speak("You're doing great — keep it up!")
+                await self._speak(f"You're doing great{_name_addr} — keep it up! Stay focused.")
 
             elif intervention == InterventionType.ENGAGE:
-                # Session just started or no topic set — get them talking
+                # This fires when state = NEUTRAL (very start of session)
+                # Only fires if intervention was NOT blocked by the cooldown guard
+                # (joining creates last_intervention_at = now, so this will be
+                # suppressed for the first cooldown_seconds after session start)
                 topic_str = session.current_topic
-                if topic_str:
+                if topic_str and not _is_generic_label(topic_str):
                     await self._speak(
-                        f"Welcome! I can see you're here to learn about {topic_str}. "
-                        f"Let's get started — what would you like to explore first?"
+                        f"Hey{_name_addr}! I can see you're here to learn about {topic_str}. "
+                        f"Let's get started — what do you already know about it?"
                     )
                 else:
                     await self._speak(
-                        "Hi! I'm your AI tutor. I can see you're ready to learn. "
-                        "What topic would you like to study today? "
-                        "Just tell me and I'll guide you through it."
+                        f"Hey{_name_addr}! I'm your AI tutor. "
+                        f"Tell me — what topic or video are you studying today?"
                     )
 
             session.last_intervention_at = time.time()

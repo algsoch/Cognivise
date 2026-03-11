@@ -50,6 +50,7 @@ class UserSession:
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     call_id: Optional[str] = None
     email: Optional[str] = None
+    user_name: Optional[str] = None      # learner's display name (personalises interventions)
     current_topic: Optional[str] = None
     started_at: float = field(default_factory=time.time)
 
@@ -98,6 +99,16 @@ class UserSession:
         return [
             t for t, m in self.mastery.items() if m.mastery_score < 40.0
         ]
+
+    @property
+    def name_or_default(self) -> str:
+        """Return the learner's name for personalised messages, or an empty string."""
+        return self.user_name.strip() if self.user_name and self.user_name.strip() else ""
+
+    def greet_prefix(self) -> str:
+        """Return ', Name' if name is known, else empty string."""
+        n = self.name_or_default
+        return f", {n}" if n else ""
 
     def add_transcript(self, text: str) -> None:
         self.transcript_buffer.append(text)

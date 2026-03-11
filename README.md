@@ -84,7 +84,7 @@ Think of it as a **1-on-1 human tutor**, available 24/7, at zero cost.
 ```mermaid
 flowchart TD
     %% ─── BROWSER LAYER ───────────────────────────────────────────
-    subgraph BROWSER["🖥  LEARNER'S BROWSER  —  React 18 + Vite"]
+    subgraph BROWSER["🖥  LEARNER'S BROWSER — React 18 + Vite"]
         direction LR
         CAM["📹 Webcam\ngetUserMedia · WebRTC track"]
         CONTENT["📺 Learning Content\nYouTube · Screen Share · Upload"]
@@ -92,31 +92,37 @@ flowchart TD
     end
 
     %% ─── BACKEND + VISION AGENTS SDK ────────────────────────────
-    subgraph BACKEND["⚙️  FASTAPI BACKEND  —  port 8001"]
-        subgraph VADK["Vision Agents SDK  ·  Stream Edge WebRTC"]
+    subgraph BACKEND["⚙️ FASTAPI BACKEND — port 8001"]
+
+        subgraph VADK["Vision Agents SDK · Stream Edge WebRTC"]
             EP["👁 EngagementProcessor\nFaceMesh · EAR blink\nIris gaze · Restlessness"]
             AP["🎯 AttentionProcessor\nFocus timer · Distraction\nDebounced events"]
-            CP["🧠 CognitiveLoadProcessor\nResponse latency\nError rate · Confusion NLP\nYOLO11 pose posture"]
+            CP["🧠 CognitiveLoadProcessor\nResponse latency\nError rate · Confusion NLP\nYOLO pose posture"]
         end
 
         SNAP["📸 LearningStateSnapshot\nfocused · distracted · overloaded\nstruggling · mastering · neutral"]
 
-        subgraph LOOP["🔄  Reasoning Loop  —  15 s cognitive cycle"]
+        subgraph LOOP["🔄 Reasoning Loop — 15 s cognitive cycle"]
             STATE["🗺 State Classifier\nSignal fusion → InterventionType"]
             GF["✨ Gemini 2.5 Flash\nQuestion generation\nAnswer evaluation · Feedback"]
         end
 
-        subgraph AGENTBOX["🤖  Algsoch Agent"]
+        subgraph AGENTBOX["🤖 Algsoch Agent"]
             GR["🎙 Gemini Realtime\nVoice + Video · WebRTC\nSpeaks with learner in real time"]
         end
 
         BC["📡 MetricsBroadcaster\nWebSocket push → 50 ms"]
         PG["🐘 PostgreSQL 16\nSession · Topic mastery\nSpaced repetition log"]
+
     end
 
     %% ─── CONNECTIONS ────────────────────────────────────────────
-    CAM      -->|"WebRTC audio + video"| VADK
-    CONTENT  -->|"screen frames every 30 s"| VADK
+
+    CAM -->|"WebRTC audio + video"| EP
+    CAM --> AP
+    CAM --> CP
+
+    CONTENT -->|"screen frames every 30 s"| EP
 
     EP --> SNAP
     AP --> SNAP
@@ -124,28 +130,29 @@ flowchart TD
 
     SNAP --> STATE
     STATE -->|"intervention decision"| GF
-    GF    -->|"question / prompt"| GR
+    GF -->|"question / prompt"| GR
 
-    GR    -->|"voice response"| CAM
-    GR    -->|"agent speech + action"| BC
-    GF    -->|"mastery update"| PG
-    GR    -->|"session log"| PG
+    GR -->|"voice response"| CAM
+    GR -->|"agent speech + action"| BC
+
+    GF -->|"mastery update"| PG
+    GR -->|"session log"| PG
 
     EP --> BC
     AP --> BC
     CP --> BC
-    LOOP --> BC
 
     BC -->|"WebSocket 50 ms"| PANEL
 
     %% ─── STYLES ─────────────────────────────────────────────────
-    classDef browser  fill:#1e3a5f,stroke:#61DAFB,color:#e2e8f0,rx:8
-    classDef proc     fill:#1e1b4b,stroke:#8b5cf6,color:#e2e8f0,rx:6
-    classDef snap     fill:#1c1917,stroke:#f59e0b,color:#fbbf24,rx:6
-    classDef loop     fill:#14292b,stroke:#34d399,color:#e2e8f0,rx:6
-    classDef agent    fill:#1a1233,stroke:#a78bfa,color:#e2e8f0,rx:6
-    classDef infra    fill:#1e2535,stroke:#60a5fa,color:#e2e8f0,rx:6
-    classDef db       fill:#1e293b,stroke:#4ade80,color:#e2e8f0,rx:6
+
+    classDef browser fill:#1e3a5f,stroke:#61DAFB,color:#e2e8f0
+    classDef proc fill:#1e1b4b,stroke:#8b5cf6,color:#e2e8f0
+    classDef snap fill:#1c1917,stroke:#f59e0b,color:#fbbf24
+    classDef loop fill:#14292b,stroke:#34d399,color:#e2e8f0
+    classDef agent fill:#1a1233,stroke:#a78bfa,color:#e2e8f0
+    classDef infra fill:#1e2535,stroke:#60a5fa,color:#e2e8f0
+    classDef db fill:#1e293b,stroke:#4ade80,color:#e2e8f0
 
     class CAM,CONTENT,PANEL browser
     class EP,AP,CP proc

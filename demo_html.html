@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Cognivise · Live Session Demo</title>
+<meta name="description" content="Cognivise Live Session Demo — Real-Time AI Tutor by Vicky Kumar (@algsoch)"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23020409'/%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2376b900'/%3E%3Cstop offset='.5' stop-color='%23a8e000'/%3E%3Cstop offset='1' stop-color='%2376b900'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='14' r='7' fill='none' stroke='url(%23g)' stroke-width='2'/%3E%3Cpath d='M10 14c0-3.3 2.7-6 6-6s6 2.7 6 6' fill='none' stroke='%23f97316' stroke-width='1.5'/%3E%3Ccircle cx='16' cy='14' r='2.5' fill='url(%23g)'/%3E%3Crect x='11' y='22' width='10' height='2' rx='1' fill='url(%23g)'/%3E%3Cline x1='16' y1='21' x2='16' y2='23' stroke='url(%23g)' stroke-width='1.5'/%3E%3C/svg%3E"/>
+<style>
+/* ═══════════════════════════════════════
+   TOKENS
+═══════════════════════════════════════ */
+:root{
+  --bg0:#020409; --bg1:#06080f; --bg2:#0b0d1a; --bg3:#0e1208;
+  --p1:#76b900; --p2:#a8e000; --p3:#c8f500;
+  --a1:#f97316; --a2:#fb923c; --a3:#fdba74;
+  --ok:#00e676; --warn:#f59e0b; --err:#ff5252;
+  --t1:#efffdf; --t2:#9dab8c; --t3:#4f5c44; --t4:#252e1d;
+  --border:rgba(118,185,0,.14); --border2:rgba(118,185,0,.36);
+  --gp:rgba(118,185,0,.12); --ga:rgba(249,115,22,.14);
+  --rs:8px; --rm:14px; --rl:20px; --rxl:28px;
+  --font:'Plus Jakarta Sans',sans-serif;
+  --mono:'JetBrains Mono',monospace;
+  --ease:cubic-bezier(.22,1,.36,1);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:var(--font);
+  background:var(--bg0);
+  color:var(--t1);
+  min-height:100vh;
+  overflow-x:hidden;
+  line-height:1.65;
+  font-size:16px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding:clamp(24px,4vw,48px) clamp(12px,4vw,32px) 60px;
+}
+a{color:inherit;text-decoration:none;}
+button{font-family:var(--font);cursor:pointer;border:none;background:none;}
+
+/* BG */
+#bg-canvas{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.18;}
+.orb{position:fixed;border-radius:50%;filter:blur(120px);pointer-events:none;z-index:0;}
+.orb1{width:min(600px,90vw);height:min(600px,90vw);background:radial-gradient(circle,#3d6400,transparent 70%);top:-30%;left:-20%;opacity:.28;}
+.orb2{width:min(500px,80vw);height:min(500px,80vw);background:radial-gradient(circle,#c2410c,transparent 70%);bottom:-20%;right:-15%;opacity:.2;}
+
+/* SECTION HEADER */
+.demo-wrap{position:relative;z-index:1;width:100%;max-width:960px;}
+.demo-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
+.demo-title{
+  font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--t3);display:flex;align-items:center;gap:12px;
+}
+.demo-title::after{content:'';flex:1;min-width:40px;height:1px;background:var(--border);}
+.demo-back{
+  font-size:12px;font-weight:700;color:var(--t3);border:1px solid var(--border);
+  border-radius:100px;padding:5px 14px;transition:all .2s var(--ease);
+}
+.demo-back:hover{color:var(--p2);border-color:var(--border2);}
+
+/* CHIP + PULSE */
+.chip{display:inline-flex;align-items:center;gap:7px;padding:5px 13px;border-radius:100px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;}
+.chip-g{background:rgba(0,230,118,.08);border:1px solid rgba(0,230,118,.22);color:var(--ok);}
+.pulse-dot{width:6px;height:6px;border-radius:50%;background:currentColor;animation:blink 1.4s infinite;}
+
+/* ─── COGNIVISE SESSION DEMO ─── */
+.cog-root{background:var(--bg1);border:1px solid var(--border);border-radius:var(--rl);overflow:hidden;}
+.cog-hdr{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:clamp(12px,2vw,16px) clamp(16px,3vw,22px);background:var(--bg2);border-bottom:1px solid var(--border);}
+.cog-hdr-info{font-family:var(--mono);font-size:11px;color:var(--t3);margin-left:8px;}
+.cog-hdr-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.cog-timer{font-family:var(--mono);font-size:12px;color:var(--t2);background:var(--bg3);padding:4px 10px;border-radius:6px;border:1px solid var(--border);}
+.cog-run-btn{font-size:12px;font-weight:800;padding:7px 18px;border-radius:100px;background:linear-gradient(135deg,#76b900 0%,#a8e000 50%,#76b900 100%);color:#020409;cursor:pointer;border:none;transition:all .2s var(--ease);}
+.cog-run-btn:hover{filter:brightness(1.1);transform:scale(1.04);}
+.cog-layout{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);}
+@media(max-width:700px){.cog-layout{grid-template-columns:1fr;}}
+.cog-cam-wrap{position:relative;background:var(--bg1);aspect-ratio:4/3;overflow:hidden;}
+.cog-cam-wrap canvas{position:absolute;inset:0;width:100%;height:100%;}
+.lm-overlay{position:absolute;inset:0;pointer-events:none;z-index:8;display:flex;flex-direction:column;justify-content:space-between;padding:10px;}
+.lm-top{display:flex;justify-content:space-between;align-items:center;}
+.lm-label{font-family:var(--mono);font-size:10px;color:var(--t2);background:rgba(2,4,9,.78);padding:3px 8px;border-radius:4px;border:1px solid var(--border2);backdrop-filter:blur(4px);}
+.lm-pts{font-family:var(--mono);font-size:10px;color:var(--a1);background:rgba(2,4,9,.78);padding:3px 8px;border-radius:4px;}
+.lm-emo{text-align:center;font-size:12.5px;font-weight:700;padding:4px 14px;border-radius:100px;background:rgba(2,4,9,.78);backdrop-filter:blur(6px);border:1px solid var(--border2);align-self:center;min-width:140px;transition:all .5s var(--ease);}
+.lm-bottom{display:flex;gap:6px;flex-wrap:wrap;}
+.lm-stat{font-family:var(--mono);font-size:10px;color:var(--t3);background:rgba(2,4,9,.78);padding:3px 7px;border-radius:4px;}
+.lm-stat b{color:var(--t1);}
+.int-toast{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:linear-gradient(135deg,rgba(76,121,0,.95),rgba(249,115,22,.88));color:#f0ffcc;font-size:11.5px;font-weight:700;padding:8px 16px;border-radius:100px;pointer-events:none;opacity:0;z-index:20;transition:opacity .3s;text-align:center;white-space:nowrap;backdrop-filter:blur(8px);border:1px solid rgba(168,224,0,.3);}
+.int-toast.show{opacity:1;}
+.gemini-flash-badge{position:absolute;bottom:10px;right:10px;font-size:10px;font-weight:700;padding:4px 10px;border-radius:100px;background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.3);color:var(--a2);z-index:10;font-family:var(--mono);display:flex;align-items:center;gap:6px;}
+.cog-right{background:var(--bg1);display:flex;flex-direction:column;overflow:hidden;}
+.cog-agent-hdr{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg2);border-bottom:1px solid var(--border);}
+.cog-agent-avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#76b900 0%,#a8e000 50%,#f97316 100%);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:#020409;flex-shrink:0;}
+.cog-agent-name{font-size:13px;font-weight:800;}
+.cog-agent-sub{font-family:var(--mono);font-size:10px;color:var(--t3);}
+.cog-audio-ind{margin-left:auto;display:flex;gap:2px;align-items:flex-end;height:18px;padding-right:2px;}
+.cog-audio-ind span{width:3px;border-radius:2px;background:var(--ok);transition:height .08s;}
+.cog-chat{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;min-height:150px;max-height:220px;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.cog-msg{max-width:92%;font-size:12px;line-height:1.55;padding:9px 12px;border-radius:14px;animation:fadeUp .3s var(--ease) both;}
+.cog-msg.agent{background:rgba(118,185,0,.1);border:1px solid rgba(118,185,0,.28);color:var(--t1);align-self:flex-start;border-bottom-left-radius:4px;}
+.cog-msg.learner{background:var(--bg3);border:1px solid var(--border);color:var(--t2);align-self:flex-end;border-bottom-right-radius:4px;}
+.cog-msg.sys{background:rgba(249,115,22,.07);border:1px solid rgba(249,115,22,.15);color:var(--a2);align-self:center;font-size:10.5px;font-family:var(--mono);text-align:center;border-radius:8px;max-width:100%;}
+.cog-msg-who{font-size:10px;font-weight:700;margin-bottom:3px;opacity:.7;}
+.agent .cog-msg-who{color:var(--p2);font-weight:800;}
+.learner .cog-msg-who{color:var(--t3);}
+.gemini-thinking{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--a2);font-family:var(--mono);padding:6px 12px;background:rgba(249,115,22,.06);border-radius:8px;border:1px solid rgba(249,115,22,.14);align-self:flex-start;}
+.gt-dots span{display:inline-block;width:4px;height:4px;border-radius:50%;background:var(--a2);margin:0 1px;animation:blink 1s infinite;}
+.gt-dots span:nth-child(2){animation-delay:.2s;}
+.gt-dots span:nth-child(3){animation-delay:.4s;}
+.cog-metrics{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--border);}
+.cog-gauge-item{padding:10px 8px;display:flex;flex-direction:column;align-items:center;gap:4px;border-right:1px solid var(--border);}
+.cog-gauge-item:last-child{border-right:none;}
+.cog-gauge-ring{position:relative;width:54px;height:54px;}
+.cog-gauge-ring svg{width:54px;height:54px;transform:rotate(-90deg);}
+.ring-bg{fill:none;stroke:rgba(255,255,255,.05);stroke-width:4;}
+.ring-fill{fill:none;stroke-width:4;stroke-linecap:round;stroke-dasharray:150.8;stroke-dashoffset:150.8;transition:stroke-dashoffset .8s var(--ease);}
+.cog-gauge-ring>span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;font-family:var(--mono);}
+.cog-gauge-lbl{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);}
+.cog-bottom{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border-top:1px solid var(--border);}
+@media(max-width:700px){.cog-bottom{grid-template-columns:1fr;}}
+.cog-mastery{background:var(--bg2);padding:clamp(12px,2vw,18px);}
+.cog-mastery-hdr{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}
+.mbar-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.mbar-topic{color:var(--t2);font-size:11px;width:110px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mbar-track{flex:1;height:5px;background:rgba(255,255,255,.05);border-radius:100px;overflow:hidden;}
+.mbar-fill{height:100%;border-radius:100px;transition:width .8s var(--ease);width:0%;}
+.mbar-val{font-family:var(--mono);font-size:11px;color:var(--t3);width:32px;text-align:right;flex-shrink:0;}
+.cog-wf-wrap{background:var(--bg2);padding:clamp(12px,2vw,18px);}
+.cog-wf-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.cog-wf-legend{font-size:11px;display:flex;gap:10px;}
+.cog-wf-canvas{width:100%;height:clamp(60px,10vw,88px);display:block;border-radius:4px;}
+
+/* ─── WATCH BAR ─── */
+.watch-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px clamp(12px,3vw,18px);background:rgba(249,115,22,.04);border-bottom:1px solid rgba(249,115,22,.12);transition:all .3s;}
+.watch-thumb{width:36px;height:28px;border-radius:5px;background:rgba(249,115,22,.15);border:1px solid rgba(249,115,22,.3);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;}
+.watch-info{flex:1;min-width:80px;}
+.watch-ch-name{font-size:10px;font-weight:800;color:var(--a2);letter-spacing:.06em;text-transform:uppercase;}
+.watch-vid-title{font-size:11px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;}
+.watch-prog-wrap{display:flex;flex-direction:column;gap:4px;min-width:80px;}
+.watch-time-row{display:flex;gap:5px;font-family:var(--mono);font-size:10px;color:var(--t3);align-items:center;}
+.watch-track{height:3px;background:rgba(255,255,255,.07);border-radius:100px;overflow:hidden;}
+.watch-fill{height:100%;border-radius:100px;background:linear-gradient(90deg,var(--p1),var(--a1));transition:width .6s var(--ease);}
+.watch-ch-btns{display:flex;gap:5px;flex-wrap:wrap;}
+.watch-ch-btn{font-size:10px;font-weight:700;padding:3px 9px;border-radius:100px;background:var(--bg3);border:1px solid var(--border);color:var(--t3);cursor:pointer;transition:all .2s;font-family:var(--mono);}
+.watch-ch-btn:hover{border-color:rgba(249,115,22,.3);color:var(--a2);}
+.watch-ch-btn.wc-active{background:rgba(249,115,22,.12);border-color:rgba(249,115,22,.35);color:var(--a1);}
+
+/* ─── EMOTION CONTROLS ─── */
+.emo-ctrl-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:9px clamp(12px,3vw,18px);background:var(--bg2);border-bottom:1px solid var(--border);}
+.emo-ctrl-lbl{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);flex-shrink:0;padding-right:4px;}
+.emo-btn{font-size:11px;font-weight:600;padding:5px 11px;border-radius:100px;background:var(--bg3);border:1px solid var(--border);color:var(--t3);cursor:pointer;transition:all .22s var(--ease);font-family:var(--font);line-height:1.2;}
+.emo-btn:hover{border-color:var(--border2);color:var(--p2);transform:translateY(-2px);background:var(--gp);}
+.emo-btn.emo-active{background:linear-gradient(135deg,rgba(118,185,0,.2),rgba(249,115,22,.12));border-color:rgba(168,224,0,.45);color:var(--p2);box-shadow:0 0 14px rgba(118,185,0,.22);}
+
+/* RESPONSIVE */
+@media(max-width:680px){
+  .cog-hdr{flex-direction:column;align-items:flex-start;}
+  .cog-hdr-right{width:100%;justify-content:space-between;}
+  .watch-info{min-width:60px;} .watch-vid-title{max-width:120px;}
+  .emo-ctrl-row{gap:5px;} .emo-btn{font-size:10px;padding:4px 9px;}
+}
+@media(max-width:440px){
+  .emo-btn{font-size:9.5px;padding:3px 7px;}
+  .watch-ch-btns{width:100%;}
+}
+
+/* FOOTER */
+.demo-footer{
+  position:relative;z-index:1;margin-top:28px;
+  font-family:var(--mono);font-size:11px;color:var(--t4);text-align:center;
+  display:flex;gap:16px;flex-wrap:wrap;justify-content:center;align-items:center;
+}
+.demo-footer a{color:var(--t3);transition:color .2s;}
+.demo-footer a:hover{color:var(--p2);}
+
+/* KEYFRAMES */
+@keyframes fadeUp{from{opacity:0;transform:translateY(22px);}to{opacity:1;transform:translateY(0);}}
+@keyframes blink{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.4;transform:scale(.75);}}
+@keyframes shimmer{0%{background-position:0% 50%;}100%{background-position:200% 50%;}}
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+
+<div class="demo-wrap">
+
+  <!-- Header -->
+  <div class="demo-header">
+    <div class="demo-title">Cognivise &nbsp;·&nbsp; Live Session Demo</div>
+    <a href="https://algsoch.github.io/nvidia_event/" class="demo-back">← Full Entry</a>
+  </div>
+
+  <!-- COGNIVISE SESSION DEMO ROOT -->
+  <div class="cog-root" id="cog-root">
+
+    <!-- Header bar -->
+    <div class="cog-hdr">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div class="chip chip-g" id="cog-chip"><div class="pulse-dot"></div>Ready</div>
+        <span class="cog-hdr-info" id="cog-hdr-info">Vicky Kumar &nbsp;·&nbsp; <span style="color:var(--a2)">&#8220;Python Decorators&#8221;</span> — youtube.com</span>
+      </div>
+      <div class="cog-hdr-right">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--t3);">State: <b id="cog-state-lbl" style="color:var(--a2)">IDLE</b></span>
+        <span class="cog-timer" id="cog-timer">00:00</span>
+        <button class="cog-run-btn" id="cog-run-btn" onclick="cogToggle()">&#9654; Run Demo</button>
+      </div>
+    </div>
+
+    <!-- YT channel now-watching bar -->
+    <div class="watch-bar" id="watch-bar">
+      <div class="watch-thumb" id="watch-thumb">🐍</div>
+      <div class="watch-info">
+        <div class="watch-ch-name" id="watch-ch-name">Tech With Tim</div>
+        <div class="watch-vid-title" id="watch-vid-title">Python Decorators – Complete Guide</div>
+      </div>
+      <div class="watch-prog-wrap">
+        <div class="watch-time-row">
+          <span id="watch-cur">00:00</span>
+          <span style="opacity:.35">/</span>
+          <span id="watch-dur">45:22</span>
+        </div>
+        <div class="watch-track"><div class="watch-fill" id="watch-fill" style="width:0%"></div></div>
+      </div>
+      <div class="watch-ch-btns">
+        <button class="watch-ch-btn wc-active" data-ch="0" onclick="setChannel(0)">Tim</button>
+        <button class="watch-ch-btn" data-ch="1" onclick="setChannel(1)">Corey</button>
+        <button class="watch-ch-btn" data-ch="2" onclick="setChannel(2)">3B1B</button>
+        <button class="watch-ch-btn" data-ch="3" onclick="setChannel(3)">NeuralNine</button>
+      </div>
+    </div>
+
+    <!-- Emotion / state picker row -->
+    <div class="emo-ctrl-row">
+      <span class="emo-ctrl-lbl">Try&nbsp;State:</span>
+      <button class="emo-btn emo-active" data-ei="0" onclick="setEmoState(0)">😊 Greeting</button>
+      <button class="emo-btn" data-ei="1" onclick="setEmoState(1)">🎯 Focused</button>
+      <button class="emo-btn" data-ei="2" onclick="setEmoState(2)">👀 Distracted</button>
+      <button class="emo-btn" data-ei="3" onclick="setEmoState(3)">🤔 Answering</button>
+      <button class="emo-btn" data-ei="4" onclick="setEmoState(4)">😤 Confused</button>
+      <button class="emo-btn" data-ei="5" onclick="setEmoState(5)">🔥 Engaged</button>
+      <button class="emo-btn" data-ei="6" onclick="setEmoState(6)">✨ Mastery</button>
+    </div>
+
+    <!-- 2-col: learner cam | agent chat + gauges -->
+    <div class="cog-layout">
+
+      <!-- LEFT: Learner cam canvas -->
+      <div class="cog-cam-wrap">
+        <canvas id="cv-learner"></canvas>
+        <div class="lm-overlay">
+          <div class="lm-top">
+            <span class="lm-label">LEARNER CAM &nbsp;·&nbsp; <span id="lm-fps">0</span> fps</span>
+            <span class="lm-pts">468 pts &nbsp;·&nbsp; YOLO11</span>
+          </div>
+          <div class="lm-emo" id="lm-emo" style="opacity:0">&#8212;</div>
+          <div class="lm-bottom">
+            <span class="lm-stat">EAR <b id="lm-ear">&#8212;</b></span>
+            <span class="lm-stat">Yaw <b id="lm-yaw">&#8212;</b></span>
+            <span class="lm-stat">Blinks <b id="lm-blinks">0</b></span>
+            <span class="lm-stat">Rest <b id="lm-rest">&#8212;</b></span>
+          </div>
+        </div>
+        <div class="gemini-flash-badge" id="gfb" style="opacity:0">
+          <div class="pulse-dot"></div>Gemini Flash &nbsp;·&nbsp; <span id="gfb-topic">detecting&#8230;</span>
+        </div>
+        <div class="int-toast" id="int-toast"></div>
+      </div>
+
+      <!-- RIGHT: Agent chat + circular gauges -->
+      <div class="cog-right">
+        <div class="cog-agent-hdr">
+          <div class="cog-agent-avatar">A</div>
+          <div>
+            <div class="cog-agent-name">Algsoch</div>
+            <div class="cog-agent-sub" id="agent-status">Waiting to start&#8230;</div>
+          </div>
+          <div class="cog-audio-ind" id="audio-ind">
+            <span style="height:4px"></span><span style="height:4px"></span>
+            <span style="height:4px"></span><span style="height:4px"></span>
+            <span style="height:4px"></span>
+          </div>
+        </div>
+        <div class="cog-chat" id="cog-chat"></div>
+        <div class="cog-metrics">
+          <div class="cog-gauge-item">
+            <div class="cog-gauge-ring">
+              <svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="24" class="ring-bg"/><circle cx="30" cy="30" r="24" class="ring-fill" id="rg-eng" style="stroke:var(--ok)"/></svg>
+              <span id="gv-eng" style="color:var(--ok)">--</span>
+            </div>
+            <div class="cog-gauge-lbl">Engagement</div>
+          </div>
+          <div class="cog-gauge-item">
+            <div class="cog-gauge-ring">
+              <svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="24" class="ring-bg"/><circle cx="30" cy="30" r="24" class="ring-fill" id="rg-att" style="stroke:var(--a1)"/></svg>
+              <span id="gv-att" style="color:var(--a1)">--</span>
+            </div>
+            <div class="cog-gauge-lbl">Attention</div>
+          </div>
+          <div class="cog-gauge-item">
+            <div class="cog-gauge-ring">
+              <svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="24" class="ring-bg"/><circle cx="30" cy="30" r="24" class="ring-fill" id="rg-cog" style="stroke:var(--warn)"/></svg>
+              <span id="gv-cog" style="color:var(--warn)">--</span>
+            </div>
+            <div class="cog-gauge-lbl">Cogn.Load</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom: mastery bars + waveform -->
+    <div class="cog-bottom">
+      <div class="cog-mastery">
+        <div class="cog-mastery-hdr">
+          <span>&#127919; Topic Mastery</span>
+          <span style="font-size:10px;color:var(--a2);font-family:var(--mono)" id="mastery-cycle">Cycle 1</span>
+        </div>
+        <div class="mbar-row"><span class="mbar-topic">Python Decorators</span><div class="mbar-track"><div class="mbar-fill" id="mb-dec" style="background:var(--p2)"></div></div><span class="mbar-val" id="mv-dec">0%</span></div>
+        <div class="mbar-row"><span class="mbar-topic">Closures</span><div class="mbar-track"><div class="mbar-fill" id="mb-clo" style="background:var(--a1)"></div></div><span class="mbar-val" id="mv-clo">0%</span></div>
+        <div class="mbar-row"><span class="mbar-topic">Higher-Order Fns</span><div class="mbar-track"><div class="mbar-fill" id="mb-hof" style="background:var(--ok)"></div></div><span class="mbar-val" id="mv-hof">0%</span></div>
+        <div class="mbar-row"><span class="mbar-topic">functools.wraps</span><div class="mbar-track"><div class="mbar-fill" id="mb-ft" style="background:var(--warn)"></div></div><span class="mbar-val" id="mv-ft">0%</span></div>
+      </div>
+      <div class="cog-wf-wrap">
+        <div class="cog-wf-hdr">
+          <div class="cog-wf-legend">
+            <span style="color:var(--p2)">&#9679; Engagement</span>
+            <span style="color:var(--a1)">&#9679; Attention</span>
+            <span style="color:var(--ok)">&#9679; Cog.Load</span>
+          </div>
+          <span style="font-family:var(--mono);font-size:10px;color:var(--t3)">-120s &#8594; now</span>
+        </div>
+        <canvas id="cv-wf" class="cog-wf-canvas" height="80"></canvas>
+      </div>
+    </div>
+
+  </div><!-- /cog-root -->
+
+  <div class="demo-footer">
+    <a href="https://github.com/algsoch/Cognivise" target="_blank">@algsoch/Cognivise</a>
+    <span style="opacity:.3">·</span>
+    <a href="https://github.com/algsoch/nvidia_event" target="_blank">nvidia_event</a>
+    <span style="opacity:.3">·</span>
+    <span>Vicky Kumar &nbsp;·&nbsp; GTC 2026</span>
+  </div>
+
+</div><!-- /demo-wrap -->
+
+<script>
+'use strict';
+
+/* ── PARTICLE NETWORK ──────────────── */
+(function(){
+  const c=document.getElementById('bg-canvas'),ctx=c.getContext('2d');
+  let W,H;
+  function resize(){W=c.width=innerWidth;H=c.height=innerHeight;}
+  resize();addEventListener('resize',resize);
+  const N=45,pts=Array.from({length:N},()=>({
+    x:Math.random()*innerWidth,y:Math.random()*innerHeight,
+    vx:(Math.random()-.5)*.18,vy:(Math.random()-.5)*.18,
+    r:Math.random()*1.1+.4,c:Math.random()>.5?'118,185,0':'249,115,22'
+  }));
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    pts.forEach(p=>{
+      p.x+=p.vx;p.y+=p.vy;
+      if(p.x<0)p.x=W;if(p.x>W)p.x=0;if(p.y<0)p.y=H;if(p.y>H)p.y=0;
+      ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${p.c},.8)`;ctx.fill();
+    });
+    for(let i=0;i<N;i++)for(let j=i+1;j<N;j++){
+      const d=Math.hypot(pts[i].x-pts[j].x,pts[i].y-pts[j].y);
+      if(d<110){
+        ctx.beginPath();ctx.moveTo(pts[i].x,pts[i].y);ctx.lineTo(pts[j].x,pts[j].y);
+        ctx.strokeStyle=`rgba(118,185,0,${.12*(1-d/110)})`;ctx.lineWidth=.5;ctx.stroke();
+      }
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+/* ── DEMO STATES ─────────────────── */
+const DEMO_STATES=[
+  {id:'GREETING', dur:7,  eng:62,att:68,coe:28,emo:'Curious \uD83D\uDE0A',ear:0.32,yaw:2, blink:0,rest:.08,
+   msg:{w:'agent',t:"Hey Vicky! I'm Algsoch, your AI tutor! I see you're watching \u2018Python Decorators\u2019 \u2014 let\u2019s learn it together!"},
+   sys:'Gemini 2.5 Realtime connected \u00b7 Algsoch online \u00b7 topic auto-detected via Gemini Flash',
+   mastery:{dec:0,clo:0,hof:0,ft:0}},
+  {id:'FOCUSED',   dur:16, eng:85,att:91,coe:29,emo:'Focused \uD83C\uDFAF',ear:0.31,yaw:0, blink:0,rest:.07,
+   sys:'\u2714 Engagement 85 \u00b7 Attention 91 \u2014 optimal zone \u00b7 no intervention needed',
+   mastery:{dec:14,clo:10,hof:6,ft:0}},
+  {id:'DISTRACTED',dur:11, eng:50,att:25,coe:52,emo:'Distracted \uD83D\uDC40',ear:0.30,yaw:28,blink:1,rest:.64,
+   msg:{w:'agent',t:'Still with me, Vicky? What have you learned about decorators so far?'},
+   int:'\uD83D\uDCCD Attention drop detected \u2192 Check-in fired',
+   sys:'\u26A0 Attention: 25 \u2014 ReasoningLoop dispatched CHECK_IN',
+   mastery:{dec:14,clo:10,hof:6,ft:0}},
+  {id:'ANSWERING',  dur:9,  eng:75,att:80,coe:46,emo:'Thinking \uD83E\uDD14',ear:0.32,yaw:5, blink:0,rest:.17,
+   msg:{w:'learner',t:'They wrap functions and add behavior \u2014 without changing the original code\u2026'},
+   mastery:{dec:22,clo:13,hof:8,ft:0}},
+  {id:'CONFUSED',  dur:13, eng:47,att:64,coe:91,emo:'Confused \uD83D\uDE15',ear:0.28,yaw:-9,blink:1,rest:.74,
+   msg:{w:'agent',t:'Think of a decorator as a gift wrapper \u2014 it adds a bow around your function, without touching what\u2019s inside. \uD83C\uDF81'},
+   int:'\uD83D\uDD04 Cognitive load 91% \u2192 Simplification sent',
+   sys:'\u26A0 CogLoad: HIGH \u2014 Gemini generated concept simplification',
+   mastery:{dec:22,clo:13,hof:8,ft:0}},
+  {id:'ENGAGED',   dur:16, eng:94,att:90,coe:34,emo:'Engaged \uD83D\uDD25',ear:0.34,yaw:1, blink:0,rest:.08,
+   msg:{w:'agent',t:'Excellent! Decorator mastery just hit 56%! Now tell me \u2014 what does @functools.wraps do?'},
+   int:'\u26A1 High engagement \u2192 Challenge question dispatched',
+   sys:'\u2714 ReasoningLoop: CHALLENGE_LEARNER \u2014 mastery rising fast',
+   mastery:{dec:56,clo:28,hof:35,ft:8}},
+  {id:'MASTERY',   dur:10, eng:88,att:84,coe:31,emo:'Confident \u2728',ear:0.31,yaw:2, blink:0,rest:.07,
+   msg:{w:'learner',t:'It preserves the wrapped function\u2019s __name__ and __doc__ \u2014 without it, introspection breaks!'},
+   sys:'\u2714 Semantic eval: CORRECT \u2014 mastery delta +12 \u00b7 spaced repetition scheduled',
+   mastery:{dec:68,clo:36,hof:44,ft:24}},
+  {id:'RECALL',    dur:12, eng:82,att:85,coe:36,emo:'Focused \uD83C\uDFAF',ear:0.32,yaw:-2,blink:0,rest:.09,
+   msg:{w:'agent',t:'\uD83C\uDFAF Mastery: Python Decorators \u2192 72%. Spaced repetition in 3 days. Great work today, Vicky!'},
+   int:'\uD83D\uDCDA Spaced repetition scheduled \u2014 session complete',
+   sys:'Session complete \u00b7 Dashboard ready \u00b7 Next review: +3 days',
+   mastery:{dec:72,clo:44,hof:54,ft:34}},
+];
+
+const YT_CHANNELS=[
+  {thumb:'🐍',ch:'Tech With Tim',title:'Python Decorators – Complete Guide',dur:'45:22',topic:'Python Decorators',secs:2722},
+  {thumb:'📘',ch:'Corey Schafer',title:'Python Tutorial: Closures Deep Dive',dur:'31:08',topic:'Closures',secs:1868},
+  {thumb:'🔵',ch:'3Blue1Brown',title:'The Essence of Linear Algebra',dur:'15:30',topic:'Linear Algebra',secs:930},
+  {thumb:'🔥',ch:'NeuralNine',title:'Advanced Python Decorators + functools',dur:'22:15',topic:'functools.wraps',secs:1335},
+];
+let activeChannel=0;
+
+const COG={
+  running:false,stateIdx:0,elapsed:0,totalTime:0,
+  blinks:0,eng:0,att:0,coe:0,ear:0.32,yaw:0,rest:0,
+  engH:[],attH:[],cogH:[],WH:120,
+  t:0,W:0,H:0,
+  blinkEyeOpen:1,blinkAnimT:0,blinkAnimating:false,
+  stateTimer:null,rafId:null,
+  fpsCnt:0,fpsT:0,fps:0,lastRafT:0,
+};
+
+function G(id){return document.getElementById(id);}
+
+function cogToggle(){if(COG.running)stopCog();else startCog();}
+
+function startCog(){
+  COG.running=true;COG.stateIdx=0;COG.elapsed=0;COG.totalTime=0;
+  COG.engH=[];COG.attH=[];COG.cogH=[];COG.blinks=0;COG.t=0;
+  COG.fps=0;COG.fpsCnt=0;COG.fpsT=performance.now();COG.lastRafT=0;
+  const cv=G('cv-learner'),wrap=cv?.parentElement;
+  if(cv&&wrap){cv.width=wrap.offsetWidth||320;cv.height=wrap.offsetHeight||240;}
+  COG.W=cv?.width||320;COG.H=cv?.height||240;
+  const wf=G('cv-wf');if(wf){wf.width=wf.parentElement?.offsetWidth||320;}
+  G('cog-run-btn').textContent='\u25A0 Stop';
+  G('agent-status').textContent='Connected \u00b7 Gemini 2.5 Realtime';
+  G('lm-emo').style.opacity='1';
+  G('gfb').style.opacity='1';
+  G('gfb-topic').textContent=YT_CHANNELS[activeChannel]?.topic||'Python Decorators';
+  G('cog-chat').innerHTML='';
+  const wfill=G('watch-fill');if(wfill)wfill.style.width='0%';
+  const wcur=G('watch-cur');if(wcur)wcur.textContent='00:00';
+  enterState(0);
+  COG.rafId=requestAnimationFrame(cogRaf);
+  COG.stateTimer=setInterval(tickState,1000);
+}
+
+function stopCog(){
+  COG.running=false;
+  if(COG.rafId){cancelAnimationFrame(COG.rafId);COG.rafId=null;}
+  if(COG.stateTimer){clearInterval(COG.stateTimer);COG.stateTimer=null;}
+  G('cog-run-btn').textContent='\u25B6 Run Demo';
+  G('agent-status').textContent='Disconnected';
+  G('cog-chip').innerHTML='<div class="pulse-dot"></div>Stopped';
+  G('cog-state-lbl').textContent='IDLE';
+}
+
+function enterState(idx){
+  const s=DEMO_STATES[idx];
+  G('cog-chip').innerHTML=`<div class="pulse-dot"></div>${s.id}`;
+  G('cog-state-lbl').textContent=s.id;
+  document.querySelectorAll('.emo-btn').forEach((b,i)=>b.classList.toggle('emo-active',i===idx));
+  if(s.sys)addMsg('sys',s.sys);
+  if(s.msg){
+    if(s.msg.w==='agent'){
+      const tid='think-'+Date.now();
+      addThinking(tid);
+      setTimeout(()=>{removeThinking(tid);addMsg('agent',s.msg.t);animateAudio();},1000);
+    }else{
+      setTimeout(()=>addMsg('learner',s.msg.t),600);
+    }
+  }
+  if(s.int)setTimeout(()=>showToast(s.int),300);
+  setTimeout(()=>updateMastery(s.mastery),700);
+  const emoEl=G('lm-emo');if(emoEl)emoEl.textContent=s.emo;
+}
+
+function tickState(){
+  if(!COG.running)return;
+  COG.elapsed++;COG.totalTime++;
+  const m=Math.floor(COG.totalTime/60),sc=COG.totalTime%60;
+  const tm=G('cog-timer');if(tm)tm.textContent=String(m).padStart(2,'0')+':'+String(sc).padStart(2,'0');
+
+  const ch=YT_CHANNELS[activeChannel];
+  const watchSec=Math.min(ch.secs,COG.totalTime*3);
+  const wp=Math.min(100,Math.floor(watchSec/ch.secs*100));
+  const wf=G('watch-fill');if(wf)wf.style.width=wp+'%';
+  const wc=G('watch-cur');if(wc){const wm=Math.floor(watchSec/60),ws=watchSec%60;wc.textContent=String(wm).padStart(2,'0')+':'+String(ws).padStart(2,'0');}
+
+  const s=DEMO_STATES[COG.stateIdx];
+  if(COG.elapsed>=s.dur){
+    COG.elapsed=0;
+    COG.stateIdx=(COG.stateIdx+1)%DEMO_STATES.length;
+    if(COG.stateIdx===0){const mc=G('mastery-cycle');if(mc){const c=parseInt(mc.textContent.replace('Cycle ',''))||1;mc.textContent='Cycle '+(c+1);}}
+    enterState(COG.stateIdx);
+  }
+  const lr=0.1;
+  COG.eng+=(s.eng-COG.eng)*lr;COG.att+=(s.att-COG.att)*lr;COG.coe+=(s.coe-COG.coe)*lr;
+  COG.ear+=(s.ear-COG.ear)*0.07;COG.yaw+=(s.yaw-COG.yaw)*0.10;COG.rest+=(s.rest-COG.rest)*0.1;
+  COG.engH.push(COG.eng/100);if(COG.engH.length>COG.WH)COG.engH.shift();
+  COG.attH.push(COG.att/100);if(COG.attH.length>COG.WH)COG.attH.shift();
+  COG.cogH.push(COG.coe/100);if(COG.cogH.length>COG.WH)COG.cogH.shift();
+  if(s.blink&&Math.random()<.1){COG.blinks++;const b=G('lm-blinks');if(b)b.textContent=COG.blinks;triggerBlink();}
+  setGauge('rg-eng','gv-eng',Math.round(COG.eng));
+  setGauge('rg-att','gv-att',Math.round(COG.att));
+  setGauge('rg-cog','gv-cog',Math.round(COG.coe));
+  const earEl=G('lm-ear');if(earEl)earEl.textContent=COG.ear.toFixed(2);
+  const yawEl=G('lm-yaw');if(yawEl)yawEl.textContent=Math.round(COG.yaw)+'\u00b0';
+  const restEl=G('lm-rest');if(restEl)restEl.textContent=(COG.rest*100).toFixed(0)+'%';
+  COG.fpsCnt++;const now=performance.now();
+  if(now-COG.fpsT>=1000){COG.fps=COG.fpsCnt;COG.fpsCnt=0;COG.fpsT=now;}
+  const fpsEl=G('lm-fps');if(fpsEl)fpsEl.textContent=COG.fps;
+}
+
+function triggerBlink(){if(!COG.blinkAnimating){COG.blinkAnimating=true;COG.blinkAnimT=0;}}
+
+function addMsg(who,text){
+  const chat=G('cog-chat');if(!chat)return;
+  const d=document.createElement('div');
+  d.className='cog-msg '+who;
+  const label=who==='agent'?'Algsoch':who==='learner'?'Vicky':'';
+  d.innerHTML=(label?`<div class="cog-msg-who">${label}</div>`:'')+text;
+  chat.appendChild(d);chat.scrollTop=chat.scrollHeight;
+}
+
+function addThinking(id){
+  const chat=G('cog-chat');if(!chat)return;
+  const d=document.createElement('div');
+  d.className='cog-msg agent gemini-thinking';d.id=id;
+  d.innerHTML='<span style="color:var(--a2);font-weight:700;margin-right:6px;">Algsoch</span><span class="gt-dots"><span></span><span></span><span></span></span><span style="opacity:.55;font-size:10px;margin-left:8px;">via Gemini 2.5 Flash</span>';
+  chat.appendChild(d);chat.scrollTop=chat.scrollHeight;
+}
+
+function removeThinking(id){const el=G(id);if(el)el.remove();}
+
+function showToast(text){
+  const t=G('int-toast');if(!t)return;
+  t.textContent=text;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2800);
+}
+
+function animateAudio(){
+  const ind=G('audio-ind');if(!ind)return;
+  const bars=ind.querySelectorAll('span');
+  let tick=0;const anim=setInterval(()=>{
+    bars.forEach(b=>{b.style.height=Math.floor(2+Math.random()*14)+'px';});
+    tick+=80;if(tick>=2400){clearInterval(anim);bars.forEach(b=>{b.style.height='4px';});}
+  },80);
+}
+
+function setGauge(ringId,valId,pct){
+  const ring=G(ringId);if(ring)ring.style.strokeDashoffset=150.8*(1-Math.min(100,pct)/100);
+  const val=G(valId);if(val)val.textContent=Math.round(pct);
+}
+
+function updateMastery(m){
+  const set=(bi,vi,p)=>{const b=G(bi);if(b)b.style.width=p+'%';const v=G(vi);if(v)v.textContent=p+'%';};
+  set('mb-dec','mv-dec',m.dec);set('mb-clo','mv-clo',m.clo);
+  set('mb-hof','mv-hof',m.hof);set('mb-ft','mv-ft',m.ft);
+}
+
+function setChannel(i){
+  activeChannel=i;
+  const c=YT_CHANNELS[i];
+  if(G('watch-ch-name'))G('watch-ch-name').textContent=c.ch;
+  if(G('watch-vid-title'))G('watch-vid-title').textContent=c.title;
+  if(G('watch-dur'))G('watch-dur').textContent=c.dur;
+  if(G('watch-thumb'))G('watch-thumb').textContent=c.thumb;
+  if(G('watch-fill'))G('watch-fill').style.width='0%';
+  if(G('watch-cur'))G('watch-cur').textContent='00:00';
+  if(COG.running&&G('gfb-topic'))G('gfb-topic').textContent=c.topic;
+  const hdr=G('cog-hdr-info');
+  if(hdr)hdr.innerHTML=`Vicky Kumar &nbsp;&middot;&nbsp; <span style="color:var(--a2)">&#8220;${c.title}&#8221;</span> &mdash; ${c.ch}`;
+  document.querySelectorAll('.watch-ch-btn').forEach((b,j)=>b.classList.toggle('wc-active',j===i));
+}
+
+function setEmoState(idx){
+  document.querySelectorAll('.emo-btn').forEach((b,i)=>b.classList.toggle('emo-active',i===idx));
+  if(!COG.running){startCog();COG.stateIdx=idx;COG.elapsed=0;return;}
+  COG.stateIdx=idx;COG.elapsed=0;
+  enterState(idx);
+}
+
+/* ── Canvas RAF ──────────────────── */
+function cogRaf(ts){
+  if(!COG.running)return;
+  const dt=(ts-(COG.lastRafT||ts))/1000;COG.lastRafT=ts;COG.t+=dt;
+  if(COG.blinkAnimating){
+    COG.blinkAnimT+=dt;const bd=0.22;
+    COG.blinkEyeOpen=COG.blinkAnimT<bd/2?1-COG.blinkAnimT/(bd/2):(COG.blinkAnimT-bd/2)/(bd/2);
+    if(COG.blinkAnimT>=bd){COG.blinkEyeOpen=1;COG.blinkAnimating=false;}
+  }
+  const cv=G('cv-learner');if(cv)drawLearner(cv.getContext('2d'),cv.width,cv.height);
+  const wf=G('cv-wf');
+  if(wf&&COG.engH.length>1){wf.width=wf.parentElement?.offsetWidth||320;drawDualWF(wf.getContext('2d'),wf.width,wf.height);}
+  COG.rafId=requestAnimationFrame(cogRaf);
+}
+
+/* ── Draw learner face ───────────── */
+function drawLearner(ctx,W,H){
+  const s=DEMO_STATES[COG.stateIdx]||DEMO_STATES[0];
+  const t=COG.t;
+  const px=W/2+Math.sin(t*.18)*6+Math.sin(t*.33)*2+COG.yaw*1.4;
+  const py=H*.45+Math.sin(t*.22)*3;
+  const bs=1+0.017*Math.sin(t*1.7);
+  ctx.fillStyle='#010206';ctx.fillRect(0,0,W,H);
+  const ag=ctx.createRadialGradient(W*.25,H*.15,10,W*.5,H*.38,W*.82);
+  ag.addColorStop(0,'rgba(50,28,12,.28)');ag.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=ag;ctx.fillRect(0,0,W,H);
+  const sgi=COG.att/100*.32+.04;
+  const sgh=COG.yaw>15?30:220;
+  const sg=ctx.createRadialGradient(W*.55,H*.08,10,W*.5,H*.28,W*.7);
+  sg.addColorStop(0,`hsla(${sgh},72%,62%,${sgi})`);sg.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=sg;ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='rgba(18,10,4,.85)';ctx.fillRect(0,H*.83,W,H*.17);
+  ctx.fillStyle='rgba(35,20,7,.5)';ctx.fillRect(0,H*.81,W,3);
+  ctx.fillStyle='rgba(255,255,255,.007)';for(let y=0;y<H;y+=3)ctx.fillRect(0,y,W,1);
+  const bx=px,by=py+62;
+  const bodyG=ctx.createRadialGradient(bx,by,4,bx,by+8,72);
+  bodyG.addColorStop(0,'rgba(55,25,10,.72)');bodyG.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=bodyG;ctx.beginPath();ctx.ellipse(bx,by,82,56,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#1b0c07';ctx.beginPath();ctx.ellipse(bx,by+4,58*bs,42,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#1e0d06';ctx.beginPath();ctx.ellipse(px,py+27,11,16,0,0,Math.PI*2);ctx.fill();
+  const hg=ctx.createRadialGradient(px-10,py-14,4,px,py,52*bs);
+  hg.addColorStop(0,'#3c1e10');hg.addColorStop(1,'#1e0c06');
+  ctx.beginPath();ctx.ellipse(px,py,40*bs,46*bs,0,0,Math.PI*2);
+  ctx.fillStyle=hg;ctx.fill();
+  ctx.strokeStyle='rgba(90,48,18,.2)';ctx.lineWidth=1;ctx.stroke();
+  if(COG.coe>58){
+    const alpha=(COG.coe-58)/220;
+    [[px-21,py+4],[px+21,py+4]].forEach(([cx,cy])=>{
+      const fl=ctx.createRadialGradient(cx,cy,1,cx,cy,18);
+      fl.addColorStop(0,`rgba(215,72,55,${alpha})`);fl.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=fl;ctx.beginPath();ctx.ellipse(cx,cy,18,13,0,0,Math.PI*2);ctx.fill();
+    });
+  }
+  const browY=py-18-(COG.coe/100)*4;
+  const browWave=(COG.coe/150)*Math.sin(t*.55);
+  ctx.strokeStyle='rgba(95,52,20,.78)';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(px-24,browY+browWave);ctx.lineTo(px-7,browY-1);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(px+7,browY-1);ctx.lineTo(px+24,browY+browWave);ctx.stroke();
+  const eyeH=COG.blinkEyeOpen*5.5+0.4;
+  ctx.fillStyle='rgba(8,4,2,.96)';
+  ctx.beginPath();ctx.ellipse(px-16,py-6,13,eyeH+1,0,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(px+16,py-6,13,eyeH+1,0,0,Math.PI*2);ctx.fill();
+  const gazeX=COG.yaw/90*6;
+  const gazeY=COG.att<45?1.8:0;
+  if(COG.blinkEyeOpen>0.18){
+    ctx.fillStyle='#a8e000';
+    ctx.beginPath();ctx.arc(px-16+gazeX,py-6+gazeY,4.5*COG.blinkEyeOpen,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(px+16+gazeX,py-6+gazeY,4.5*COG.blinkEyeOpen,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='rgba(0,0,0,.82)';
+    ctx.beginPath();ctx.arc(px-16+gazeX,py-6+gazeY,2*COG.blinkEyeOpen,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(px+16+gazeX,py-6+gazeY,2*COG.blinkEyeOpen,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,.62)';
+    ctx.beginPath();ctx.arc(px-14+gazeX,py-8+gazeY,1.2,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(px+18+gazeX,py-8+gazeY,1.2,0,Math.PI*2);ctx.fill();
+  }
+  ctx.strokeStyle='rgba(78,40,16,.55)';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(px,py-1);ctx.lineTo(px-5,py+12);ctx.lineTo(px+5,py+12);ctx.stroke();
+  const mouthCurve=(COG.eng-60)/300;
+  ctx.strokeStyle='rgba(78,28,18,.72)';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(px-10,py+22);
+  ctx.quadraticCurveTo(px,py+24+mouthCurve*8,px+10,py+22);ctx.stroke();
+  const lms=[
+    [-38,0],[-35,-14],[-30,-28],[-20,-38],[-8,-44],[8,-44],[20,-38],[30,-28],[35,-14],[38,0],
+    [35,14],[30,28],[20,38],[8,44],[-8,44],[-20,38],[-30,28],[-35,14],
+    [-26,-6],[-20,-9],[-12,-9],[-8,-6],[-12,-3],[-20,-3],
+    [8,-6],[14,-9],[22,-9],[26,-6],[22,-3],[14,-3],
+    [0,-16],[0,-8],[0,0],[0,12],[-5,12],[5,12],
+    [-11,22],[11,22],[0,28]
+  ];
+  const jitterAmt=COG.rest*2.4;
+  lms.forEach(([lx,ly],i)=>{
+    const jx=(Math.random()-.5)*jitterAmt,jy=(Math.random()-.5)*jitterAmt;
+    const wx=px+lx+jx,wy=py+ly+jy;
+    const isEye=i>=18&&i<=29;
+    const alpha=isEye?.92:.68;
+    const col=isEye?`rgba(249,115,22,${alpha})`:`rgba(118,185,0,${alpha})`;
+    ctx.beginPath();ctx.arc(wx,wy,isEye?1.9:1.4,0,Math.PI*2);
+    ctx.fillStyle=col;ctx.fill();
+  });
+  if(COG.blinkEyeOpen>0.4&&COG.att>18){
+    const ga=Math.min(.75,COG.att/110),gl=18+COG.att*.05;
+    ctx.strokeStyle=`rgba(249,115,22,${ga})`;ctx.lineWidth=1.4;
+    ctx.beginPath();ctx.moveTo(px-16,py-6);ctx.lineTo(px-16+gazeX*gl/6,py-6+gazeY*gl/3);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(px+16,py-6);ctx.lineTo(px+16+gazeX*gl/6,py-6+gazeY*gl/3);ctx.stroke();
+    ctx.beginPath();ctx.arc(px+(gazeX*gl/6),py-6+(gazeY*gl/3),1.8,0,Math.PI*2);
+    ctx.fillStyle=`rgba(249,115,22,${ga})`;ctx.fill();
+  }
+  ctx.strokeStyle='rgba(118,185,0,.32)';ctx.lineWidth=1.5;
+  const ls=[bx-58,by-12],rs=[bx+58,by-12],nk=[px,py+30];
+  ctx.beginPath();ctx.moveTo(ls[0],ls[1]);ctx.lineTo(nk[0],nk[1]);ctx.lineTo(rs[0],rs[1]);ctx.stroke();
+  [ls,rs,nk].forEach(([kx,ky])=>{
+    ctx.beginPath();ctx.arc(kx,ky,3.5,0,Math.PI*2);
+    ctx.fillStyle='rgba(118,185,0,.6)';ctx.fill();
+  });
+  const earBarH=Math.round(COG.ear*3*20),earMaxH=20;
+  ctx.fillStyle='rgba(118,185,0,.22)';ctx.fillRect(W-12,py-earMaxH,4,earMaxH*2);
+  ctx.fillStyle='rgba(168,224,0,.88)';ctx.fillRect(W-12,py+earMaxH-earBarH,4,earBarH);
+  ctx.font='bold 9px JetBrains Mono,monospace';
+  ctx.textAlign='left';ctx.fillStyle='rgba(168,224,0,.55)';
+  ctx.fillText('F:'+String(Math.floor(COG.t*15)).padStart(6,'0'),5,H-7);
+  ctx.textAlign='right';
+  const sc={FOCUSED:'#00e676',DISTRACTED:'#ffb300',CONFUSED:'#ff5252',ENGAGED:'#00e676',
+            GREETING:'#a8e000',MASTERY:'#a8e000',RECALL:'#76b900',ANSWERING:'#f97316'}[s.id]||'#9dab8c';
+  ctx.fillStyle=sc;ctx.fillText(s.id,W-5,H-7);
+}
+
+/* ── Dual waveform ──────────────── */
+function drawDualWF(ctx,W,H){
+  ctx.fillStyle='rgba(2,4,9,.96)';ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle='rgba(255,255,255,.03)';ctx.lineWidth=1;
+  for(let i=1;i<4;i++){ctx.beginPath();ctx.moveTo(0,H*i/4);ctx.lineTo(W,H*i/4);ctx.stroke();}
+  drawWFLine(ctx,COG.engH,W,H,'168,224,0',false);
+  drawWFLine(ctx,COG.attH,W,H,'249,115,22',false);
+  drawWFLine(ctx,COG.cogH,W,H,'0,230,118',true);
+}
+function drawWFLine(ctx,data,W,H,rgb,dashed){
+  if(data.length<2)return;
+  ctx.setLineDash(dashed?[3,4]:[]);
+  ctx.beginPath();
+  data.forEach((v,i)=>{const x=i/(data.length-1)*W,y=H-v*H*.9-2;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});
+  ctx.strokeStyle=`rgba(${rgb},.88)`;ctx.lineWidth=1.5;ctx.stroke();
+  ctx.setLineDash([]);
+  const lv=data[data.length-1];
+  ctx.beginPath();ctx.arc(W,H-lv*H*.9-2,3,0,Math.PI*2);
+  ctx.fillStyle=`rgba(${rgb},1)`;ctx.fill();
+}
+
+window.addEventListener('load',()=>setTimeout(startCog,800));
+</script>
+</body>
+</html>

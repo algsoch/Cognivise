@@ -171,40 +171,40 @@ async def ws_metrics(websocket: WebSocket):
                     # ReasoningLoop has real signals to act on.
                     elif isinstance(msg, dict) and "face_metrics" in msg:
                         fm = msg["face_metrics"]
-                        if _active_reasoning_loop is not None:
-                            try:
-                                from backend.app.models.learning_state import EngagementSignal as _ES
-                                from backend.app.processors.engagement_processor import EngagementUpdatedEvent as _EUE
-                                sig = _ES(
-                                    face_detected      = bool(fm.get("face_detected", False)),
-                                    gaze_on_screen     = bool(fm.get("gaze_on_screen", True)),
-                                    blink_rate         = float(fm.get("blink_rate", 15.0)),
-                                    restlessness_score = float(fm.get("restlessness", 0.0)),
-                                    head_pose_confidence = 1.0,
-                                    head_yaw           = float(fm.get("head_yaw", 0.0)),
-                                    head_pitch         = float(fm.get("head_pitch", 0.0)),
-                                )
-                                # Inject into engagement processor (used by ReasoningLoop._tick)
+                        try:
+                            from backend.app.models.learning_state import EngagementSignal as _ES
+                            from backend.app.processors.engagement_processor import EngagementUpdatedEvent as _EUE
+                            sig = _ES(
+                                face_detected      = bool(fm.get("face_detected", False)),
+                                gaze_on_screen     = bool(fm.get("gaze_on_screen", True)),
+                                blink_rate         = float(fm.get("blink_rate", 15.0)),
+                                restlessness_score = float(fm.get("restlessness", 0.0)),
+                                head_pose_confidence = 1.0,
+                                head_yaw           = float(fm.get("head_yaw", 0.0)),
+                                head_pitch         = float(fm.get("head_pitch", 0.0)),
+                            )
+                            # Inject into engagement processor (used by ReasoningLoop._tick)
+                            if _active_reasoning_loop is not None:
                                 ep = _active_reasoning_loop._eng_processor
                                 if ep is not None:
                                     ep._latest_signal = sig
                                     # Also fire event so AttentionProcessor updates
                                     if ep._events:
                                         ep._events.send(_EUE(signal=sig, engagement_score=sig.to_score()))
-                                # Broadcast back immediately so frontend metrics panel updates
-                                score = sig.to_score()
-                                MetricsBroadcaster.instance().push({
-                                    "face_detected"       : sig.face_detected,
-                                    "gaze_on_screen"      : sig.gaze_on_screen,
-                                    "blink_rate"          : round(sig.blink_rate, 1),
-                                    "restlessness"        : round(sig.restlessness_score, 3),
-                                    "head_yaw"            : round(sig.head_yaw, 1),
-                                    "head_pitch"          : round(sig.head_pitch, 1),
-                                    "head_pose_confidence": 1.0,
-                                    "engagement_score"    : round(score, 1),
-                                })
-                            except Exception as _fe:
-                                logger.debug("face_metrics inject error: %s", _fe)
+                            # Always broadcast back immediately so frontend metrics panel updates
+                            score = sig.to_score()
+                            MetricsBroadcaster.instance().push({
+                                "face_detected"       : sig.face_detected,
+                                "gaze_on_screen"      : sig.gaze_on_screen,
+                                "blink_rate"          : round(sig.blink_rate, 1),
+                                "restlessness"        : round(sig.restlessness_score, 3),
+                                "head_yaw"            : round(sig.head_yaw, 1),
+                                "head_pitch"          : round(sig.head_pitch, 1),
+                                "head_pose_confidence": 1.0,
+                                "engagement_score"    : round(score, 1),
+                            })
+                        except Exception as _fe:
+                            logger.debug("face_metrics inject error: %s", _fe)
             except asyncio.TimeoutError:
                 pass
     except (WebSocketDisconnect, RuntimeError):

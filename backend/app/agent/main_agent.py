@@ -124,6 +124,8 @@ async def join_call(
     stored_name = cfg.pop("user_name", None) or None
 
     session = UserSession(user_id=user_id, call_id=call_id, current_topic=topic, email=user_email)
+    if stored_name:
+        session.user_name = stored_name
     await memory.create_session(session)
 
     # If no topic passed via framework kwargs, check the session config posted by the frontend
@@ -189,6 +191,10 @@ async def join_call(
     # Do NOT wait for agent.join() (Stream WebRTC) — that can hang or fail.
     # Monitoring, questions, and browser TTS all work without WebRTC.
     # Gemini Realtime is a bonus audio layer added when join() succeeds.
+    #
+    # Set last_intervention_at now so the first reasoning tick doesn't fire
+    # an ENGAGE intervention that duplicates the greeting we send in the join block.
+    session.last_intervention_at = time.time()
     await reasoning.start()
     logger.info("✅ ReasoningLoop started immediately — monitoring is live")
 
@@ -323,7 +329,6 @@ async def join_call(
 
                         # Re-read topic + learner name in case they were posted via /api/session/config
                         _live_topic = session.current_topic
-                        _learner_name = None
                         try:
                             from backend.app.api.server import get_pending_session_config
                             _cfg = get_pending_session_config()
@@ -332,7 +337,10 @@ async def join_call(
                                 if not _is_generic_label(_candidate):
                                     _live_topic = _candidate
                                     session.current_topic = _live_topic
-                            _learner_name = _cfg.get("user_name") or None
+                            # Keep session.user_name up to date from config
+                            _name_from_cfg = _cfg.get("user_name") or None
+                            if _name_from_cfg and not session.user_name:
+                                session.user_name = _name_from_cfg
                         except Exception:
                             pass
 
@@ -341,7 +349,8 @@ async def join_call(
                             _live_topic = None
 
                         # Personal greeting: use learner's real name if available
-                        _name_part = f"{_learner_name}! " if _learner_name else "! "
+                        _learner_name = session.user_name or None
+                        _name_part = f" {_learner_name}!" if _learner_name else "!"
 
                         # Greeting: send an INSTRUCTION to Gemini so it generates
                         # its own spoken greeting. send_client_content guarantees
@@ -358,11 +367,13 @@ async def join_call(
                         )
                         # Also push a short speech text so the TTS fallback fires in the browser
                         _greet_speech = (
-                            f"Hey{_name_part}I'm Algsoch, your AI tutor! I see you're watching '{_live_topic}'. Let's learn it together!"
+                            f"Hey{_name_part} I'm Algsoch, your AI tutor! I see you're watching '{_live_topic}'. Let's dive in together!"
                             if _live_topic else
-                            f"Hey{_name_part}I'm Algsoch, your AI tutor! What are you studying today?"
+                            f"Hey{_name_part} I'm Algsoch, your AI tutor! What are you studying today?"
                         )
                         MetricsBroadcaster.instance().push({"agent_speech": _greet_speech, "agent_action": "greeting"})
+                        # Reset cooldown from greeting time — first question will fire ~25s after greeting
+                        session.last_intervention_at = time.time()
                         logger.info("🎙️  Sending greeting prompt (topic=%s)", _live_topic or 'none')
                         try:
                             from google.genai.types import Content, Part as _Part

@@ -38,6 +38,19 @@ except ImportError:
 
 
 _FLASH_MODEL = "gemini-2.0-flash"
+_FLASH_FALLBACK = "gemini-1.5-flash"   # higher free-tier quota fallback
+
+# Simple in-process cache to reduce Gemini API calls
+# key: (topic, difficulty, question_type) → question dict + timestamp
+import threading as _threading
+_QUESTION_CACHE: dict = {}
+_CACHE_TTL = 600   # 10 min — reuse same question for same topic+difficulty
+_CACHE_LOCK = _threading.Lock()
+
+# Global rate limiter: maximum 1 Gemini text call per 4 seconds
+# Free tier = 15 RPM = 1 req / 4s. Realtime WS uses a separate quota.
+_LAST_GEMINI_CALL_AT: float = 0.0
+_MIN_CALL_GAP = 4.0   # seconds between any two back-end Gemini text calls
 
 
 def _mastery_to_difficulty(score: float) -> str:
@@ -47,10 +60,33 @@ def _mastery_to_difficulty(score: float) -> str:
     return "expert"
 
 
+# Rich fallback question bank — varied templates so the agent doesn't always
+# say the same thing when Gemini is rate-limited.
+import random as _random
+
+_FALLBACK_TEMPLATES = [
+    ("recall",       "What's one key thing you've understood about {topic} so far?"),
+    ("recall",       "Can you explain {topic} in your own words?"),
+    ("comprehension","Why is {topic} important? Give me one reason."),
+    ("comprehension","What's the main idea behind {topic}?"),
+    ("application",  "How would you use your knowledge of {topic} in a real-world situation?"),
+    ("application",  "Can you give a practical example of {topic}?"),
+    ("analysis",     "What surprised you most about {topic}?"),
+    ("analysis",     "How does {topic} connect to something you already knew?"),
+    ("synthesis",    "If you had to teach {topic} to a friend, where would you start?"),
+    ("evaluation",   "What part of {topic} do you find most confusing? Let's work through it."),
+]
+
+
 def _question_fallback(topic: str, difficulty: str) -> dict:
+    """Return a varied, natural-sounding fallback question for when Gemini is unavailable."""
+    # Pick a different template each time (deterministic-ish from topic length)
+    _templates_for_type = _FALLBACK_TEMPLATES
+    _template_pair = _random.choice(_templates_for_type)
+    question = _template_pair[1].format(topic=topic)
     return {
-        "question": f"Can you explain what you know about {topic} so far?",
-        "expected_answer_points": [f"core idea of {topic}"],
+        "question": question,
+        "expected_answer_points": [f"core understanding of {topic}"],
         "difficulty": difficulty,
         "hint": "",
     }
@@ -78,17 +114,23 @@ class GeminiEngine:
         if not self._client:
             return ""
 
-        import asyncio
+        import asyncio, time as _time
+        global _LAST_GEMINI_CALL_AT
 
         jpg = _encode_frame_jpg(frame)
         if not jpg:
             return ""
 
-        import base64 as _b64
+        # Enforce global rate limit
+        _gap = _time.time() - _LAST_GEMINI_CALL_AT
+        if _gap < _MIN_CALL_GAP:
+            await asyncio.sleep(_MIN_CALL_GAP - _gap)
+
         img_part = genai_types.Part.from_bytes(data=jpg, mime_type="image/jpeg")
 
         try:
             loop = asyncio.get_event_loop()
+            _LAST_GEMINI_CALL_AT = _time.time()
             response = await loop.run_in_executor(
                 None,
                 lambda: self._client.models.generate_content(
@@ -169,36 +211,52 @@ class GeminiEngine:
 
     async def _text(self, prompt: str, max_tokens: int = 512) -> str:
         """Run a text-only prompt through gemini-2.0-flash and return the response.
-        Retries once after 3s on 429 rate-limit errors."""
+        Retries with exponential backoff on 429, then tries gemini-1.5-flash as fallback."""
         if not self._client:
             return ""
-        import asyncio
-        for _attempt in range(2):  # 2 attempts total (original + 1 retry)
-            try:
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: self._client.models.generate_content(
-                        model=_FLASH_MODEL,
-                        contents=prompt,
-                        config=genai_types.GenerateContentConfig(
-                            max_output_tokens=max_tokens,
-                            temperature=0.7,
+        import asyncio, time as _time
+        global _LAST_GEMINI_CALL_AT
+
+        # Enforce minimum gap between calls to avoid hammering the free-tier quota
+        _gap = _time.time() - _LAST_GEMINI_CALL_AT
+        if _gap < _MIN_CALL_GAP:
+            await asyncio.sleep(_MIN_CALL_GAP - _gap)
+
+        _models_to_try = [_FLASH_MODEL, _FLASH_FALLBACK]
+        _delays = [5, 12, 25]   # seconds between retries
+
+        for _model in _models_to_try:
+            for _attempt in range(len(_delays) + 1):
+                try:
+                    loop = asyncio.get_event_loop()
+                    _LAST_GEMINI_CALL_AT = _time.time()
+                    response = await loop.run_in_executor(
+                        None,
+                        lambda m=_model: self._client.models.generate_content(
+                            model=m,
+                            contents=prompt,
+                            config=genai_types.GenerateContentConfig(
+                                max_output_tokens=max_tokens,
+                                temperature=0.7,
+                            ),
                         ),
-                    ),
-                )
-                return (response.text or "").strip()
-            except Exception as exc:
-                _msg = str(exc).lower()
-                if "429" in _msg or "quota" in _msg or "resource_exhausted" in _msg:
-                    if _attempt == 0:
-                        logger.warning("Gemini 429 rate-limit — retrying in 3s...")
-                        await asyncio.sleep(3)
-                        continue
-                    logger.warning("Gemini rate-limit persists — using question fallback")
-                else:
-                    logger.debug("Gemini text generation error: %s", exc)
-                return ""
+                    )
+                    return (response.text or "").strip()
+                except Exception as exc:
+                    _msg = str(exc).lower()
+                    if ("429" in _msg or "quota" in _msg or "resource_exhausted" in _msg):
+                        if _attempt < len(_delays):
+                            delay = _delays[_attempt]
+                            logger.warning("Gemini 429 on %s — retrying in %ds (attempt %d)...", _model, delay, _attempt + 1)
+                            await asyncio.sleep(delay)
+                            continue
+                        # All retries exhausted for this model — try fallback model
+                        logger.warning("Gemini 429 persists on %s — trying fallback model", _model)
+                        break
+                    logger.debug("Gemini text generation error (%s): %s", _model, exc)
+                    return ""
+        logger.warning("All Gemini models rate-limited — returning empty")
+        return ""
 
     async def generate_question(
         self,
@@ -206,31 +264,53 @@ class GeminiEngine:
         mastery_score: float,
         recent_context: str,
         question_type: str = "recall",
+        learner_name: Optional[str] = None,
     ) -> dict:
-        """Generate an adaptive question via Gemini. Returns same shape as ClaudeEngine."""
-        import json as _json
+        """Generate an adaptive question via Gemini. Returns same shape as ClaudeEngine.
+        Caches results per (topic, difficulty, question_type) for 10 minutes to reduce API calls."""
+        import json as _json, time as _time
         difficulty = _mastery_to_difficulty(mastery_score)
+
+        # Check cache first — avoid regenerating the same question repeatedly
+        _cache_key = (topic.lower()[:50], difficulty, question_type)
+        with _CACHE_LOCK:
+            if _cache_key in _QUESTION_CACHE:
+                _cached, _cached_at = _QUESTION_CACHE[_cache_key]
+                if _time.time() - _cached_at < _CACHE_TTL:
+                    logger.debug("Question cache hit for %s/%s", topic, difficulty)
+                    return _cached
+
+        _name_hint = f" Address the learner as '{learner_name}'." if learner_name else ""
         prompt = (
             f"You are an adaptive learning tutor. Generate ONE {question_type} question about {topic}.\n"
             f"Difficulty: {difficulty}\n"
-            f"Recent context: {recent_context[-500:] if recent_context else 'none'}\n\n"
+            f"Recent context: {recent_context[-500:] if recent_context else 'none'}\n"
+            f"Make the question feel natural and conversational, not like a formal exam.{_name_hint}\n\n"
             "Return ONLY valid JSON (no markdown):\n"
             '{"question": "<question text>", "expected_answer_points": ["<key point>"], '
             '"difficulty": "' + difficulty + '", "hint": "<optional hint>"}'
         )
         raw = await self._text(prompt, max_tokens=300)
         if not raw:
-            return _question_fallback(topic, difficulty)
+            result = _question_fallback(topic, difficulty)
+            # Do NOT cache fallbacks — try again next time
+            return result
         try:
             text = raw.strip().lstrip("`").split("```")[0] if "```" in raw else raw.strip()
-            # strip json fences
             if text.startswith("```"):
                 text = "\n".join(text.split("\n")[1:-1])
-            return _json.loads(text)
+            result = _json.loads(text)
+            # Cache successful result
+            with _CACHE_LOCK:
+                _QUESTION_CACHE[_cache_key] = (result, _time.time())
+            return result
         except Exception:
-            # If JSON fails, use the raw text as the question
+            # If JSON fails, use the raw text as the question (still cache it)
             if raw and len(raw) > 15:
-                return {"question": raw.split("\n")[0][:200], "expected_answer_points": [], "difficulty": difficulty, "hint": ""}
+                result = {"question": raw.split("\n")[0][:200], "expected_answer_points": [], "difficulty": difficulty, "hint": ""}
+                with _CACHE_LOCK:
+                    _QUESTION_CACHE[_cache_key] = (result, _time.time())
+                return result
             return _question_fallback(topic, difficulty)
 
     async def evaluate_answer(
