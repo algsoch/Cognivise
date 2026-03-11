@@ -179,18 +179,32 @@ class GeminiEngine:
         """
         if not title or not title.strip():
             return None
+        clean = title.strip()
+        # Guard: single-word titles (< 20 chars, no spaces) are almost always channel
+        # names or brand identifiers — NOT learning topics. Skip Gemini call entirely.
+        if ' ' not in clean and len(clean) < 20:
+            logger.debug("extract_topic_from_title: '%s' looks like a brand/channel name — skipping", clean)
+            return None
         prompt = (
-            f'A learner is watching a video titled: "{title.strip()}".\n'
+            f'A learner is watching a video titled: "{clean}".\n'
             "What is the specific academic or technical topic they are studying?\n"
             "Examples of good answers: 'Android development', 'React hooks', "
             "'machine learning fundamentals', 'photosynthesis', 'Newton\'s laws'.\n"
-            "Do NOT echo the full title. Do NOT say 'YouTube', 'video', 'screen share'.\n"
+            "Do NOT echo the full title back verbatim. Do NOT say 'YouTube', 'video', 'screen share'.\n"
+            "If the title is just a channel/brand name with no real topic, reply: null\n"
             "Reply with only the topic phrase (max 8 words) or the word null."
         )
         result = await self._text(prompt, max_tokens=32)
-        if not result or result.strip().lower() in ("null", "none", "unknown", ""):
+        if not result:
             return None
-        return result.strip()
+        result = result.strip()
+        if result.lower() in ("null", "none", "unknown", ""):
+            return None
+        # If Gemini echoes the title back verbatim, it didn't understand — return None
+        if result.lower() == clean.lower():
+            logger.debug("extract_topic_from_title: Gemini echoed input — treating as brand name")
+            return None
+        return result
 
     async def check_learner_confusion_from_face(
         self, face_frame: np.ndarray

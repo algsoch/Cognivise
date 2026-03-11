@@ -21,6 +21,120 @@ import AIAgentPanel from '../components/AIAgentPanel'
 import { useBackendConnection } from '../hooks/useBackendConnection'
 import { useStreamAudio } from '../hooks/useStreamAudio'
 
+// ── AI Chat Content (used when mode = 'ai_chat') ────────────────────────────
+function AIChatContent({ label }) {
+  const conversationLog      = useSessionStore((s) => s.conversationLog)
+  const agentSpeech          = useSessionStore((s) => s.agentSpeech)
+  const sendMessage          = useSessionStore((s) => s.sendMessage)
+  const addConversationEntry = useSessionStore((s) => s.addConversationEntry)
+  const [inputText, setInputText]  = useState('')
+  const [isSpeaking, setIsSpeaking] = useState(false)
+  const scrollRef = useRef(null)
+
+  useEffect(() => {
+    if (!agentSpeech) return
+    setIsSpeaking(true)
+    const t = setTimeout(() => setIsSpeaking(false), 7000)
+    return () => clearTimeout(t)
+  }, [agentSpeech])
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  }, [conversationLog.length])
+
+  const handleSend = () => {
+    const text = inputText.trim()
+    if (!text || !sendMessage) return
+    sendMessage(text)
+    addConversationEntry('user', text)
+    setInputText('')
+  }
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden bg-surface/30 rounded-lg">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-5 py-3 border-b border-border/40 bg-surface/60 flex-shrink-0">
+        <motion.div
+          animate={{ scale: isSpeaking ? [1, 1.15, 1] : 1 }}
+          transition={{ duration: 0.6, repeat: isSpeaking ? Infinity : 0 }}
+          className="w-9 h-9 rounded-xl bg-pulse flex items-center justify-center shadow-glow flex-shrink-0"
+        >
+          <span className="text-[18px]">🤖</span>
+        </motion.div>
+        <div>
+          <p className="text-sm font-semibold text-text-primary leading-none mb-0.5">Algsoch · AI Tutor</p>
+          <p className="text-[11px] text-text-muted font-mono">
+            {label && label !== 'AI Tutor Chat' ? `Topic: ${label}` : 'Ask me anything — I\'ll teach and adapt to you'}
+          </p>
+        </div>
+        {isSpeaking && (
+          <div className="ml-auto flex items-center gap-1.5">
+            {[0, 1, 2].map((i) => (
+              <motion.span key={i}
+                animate={{ scaleY: [0.4, 1, 0.4] }}
+                transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.15 }}
+                className="inline-block w-1 bg-pulse rounded-full"
+                style={{ height: 18 }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Messages */}
+      <div ref={scrollRef} className="flex-1 p-4 space-y-3 overflow-y-auto min-h-0">
+        {conversationLog.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-center gap-3 text-text-muted py-8">
+            <span className="text-4xl">💬</span>
+            <p className="text-sm font-medium text-text-secondary">
+              {label && label !== 'AI Tutor Chat' ? `Ready to teach you about ${label}` : 'Ready to teach!'}<br/>
+              <span className="text-xs text-text-muted font-normal">Say something or type below — I'm listening and watching</span>
+            </p>
+          </div>
+        )}
+        {conversationLog.map((entry, i) => (
+          <div key={i} className={`flex gap-2.5 ${entry.role === 'user' ? 'flex-row-reverse' : ''}`}>
+            <span className="flex-shrink-0 text-[18px] mt-0.5">
+              {entry.role === 'ai' ? '🤖' : '👤'}
+            </span>
+            <div className={`max-w-[75%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+              entry.role === 'ai'
+                ? 'bg-pulse/10 border border-pulse/20 text-text-primary rounded-tl-none'
+                : 'bg-aurora/10 border border-aurora/20 text-text-primary rounded-tr-none'
+            }`}>
+              {entry.action && (
+                <span className="block text-[9px] font-mono uppercase tracking-wider mb-1 opacity-60">
+                  {entry.action.replace(/_/g, ' ')}
+                </span>
+              )}
+              {entry.text}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Input */}
+      <div className="p-3 border-t border-border/40 flex gap-2 flex-shrink-0 bg-surface/60">
+        <input
+          type="text"
+          value={inputText}
+          onChange={(e) => setInputText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+          placeholder="Type your answer or question…"
+          className="flex-1 bg-surface/60 border border-border/40 rounded-xl px-3.5 py-2.5 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-pulse/50"
+        />
+        <button
+          onClick={handleSend}
+          disabled={!inputText.trim()}
+          className="flex-shrink-0 bg-pulse hover:bg-pulse/90 disabled:opacity-30 rounded-xl px-4 py-2.5 text-sm text-white font-medium transition-colors"
+        >
+          Send
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Lecture panel content ────────────────────────────────────────────────────
 function LectureContent({ contentSource, screenStream, contentRef, isSpeaking, startScreenShare }) {
   const localVideoRef = useRef(null)
@@ -81,6 +195,12 @@ function LectureContent({ contentSource, screenStream, contentRef, isSpeaking, s
         controls
         className="w-full h-full rounded-lg object-contain bg-black"
       />
+    )
+  }
+
+  if (contentSource.type === 'ai_chat') {
+    return (
+      <AIChatContent label={contentSource.label} />
     )
   }
 
@@ -422,6 +542,7 @@ function AgentActivityPanel() {
     contentSource?.type === 'youtube'     ? '▶ YouTube video' :
     contentSource?.type === 'upload'      ? `📁 ${contentSource.label ?? 'uploaded video'}` :
     contentSource?.type === 'screenshare' ? '🖥 your screen' :
+    contentSource?.type === 'ai_chat'     ? '💬 conversation' :
     '🎙 voice & camera only'
 
   // Action topic — never show raw "null" or "none"
@@ -610,6 +731,7 @@ export default function SessionPage() {
     !contentSource                       ? 'Voice only'        :
     contentSource.type === 'youtube'     ? '▶ YouTube'         :
     contentSource.type === 'upload'      ? `📁 ${contentSource.label}` :
+    contentSource.type === 'ai_chat'     ? '💬 AI Tutor'       :
     '🖥 Screen share'
 
   // Safe action label for toast badge

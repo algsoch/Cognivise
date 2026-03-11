@@ -30,6 +30,7 @@ const SOURCES = [
   { id: 'youtube',     icon: '▶️',  label: 'YouTube Video',  hint: 'Paste a link' },
   { id: 'upload',      icon: '📁',  label: 'Upload Video',   hint: 'MP4, MOV, WebM' },
   { id: 'screenshare', icon: '🖥',  label: 'Screen Share',   hint: 'Share a tab/window' },
+  { id: 'ai_chat',     icon: '💬',  label: 'Learn with AI',  hint: 'Talk & get monitored' },
 ]
 
 export default function LandingPage() {
@@ -54,7 +55,8 @@ export default function LandingPage() {
   const fileInputRef = useRef(null)
 
   // Fetch YouTube video title via oEmbed when user pastes a YT URL
-  // Auto-fills the topic field so the AI knows what video is being studied.
+  // Skips auto-fill when oEmbed returns just the channel name (e.g. user pasted
+  // a channel page URL) — channel names are brand IDs, not learning topics.
   const fetchYtTitle = async (url) => {
     if (!url.trim()) return
     try {
@@ -63,8 +65,12 @@ export default function LandingPage() {
       )
       if (res.ok) {
         const data = await res.json()
-        if (data.title && !topic.trim()) {
-          setTopic(data.title)
+        const title   = (data.title       || '').trim()
+        const channel = (data.author_name || '').trim()
+        // Only use the title if it's DIFFERENT from the channel name
+        // (when they match, oEmbed returned a channel/brand page, not a real video)
+        if (title && title.toLowerCase() !== channel.toLowerCase() && !topic.trim()) {
+          setTopic(title)
         }
       }
     } catch {
@@ -97,6 +103,8 @@ export default function LandingPage() {
         contentSourceObj = { type: 'upload', url: URL.createObjectURL(uploadedFile), label: uploadedFile.name }
       } else if (sourceType === 'screenshare') {
         contentSourceObj = { type: 'screenshare', url: null, label: 'Screen Share' }
+      } else if (sourceType === 'ai_chat') {
+        contentSourceObj = { type: 'ai_chat', url: null, label: topic.trim() || 'AI Tutor Chat' }
       }
     }
 
@@ -118,9 +126,9 @@ export default function LandingPage() {
     }).catch(() => {})
 
     // ── Session config: send topic + content_label + email so backend uses it
-    // For screen-share, don't send 'Screen Share' as content_label (it's a mode,
-    // not a topic — backend will auto-detect the real topic from screen frames).
-    const safeLabel = contentSourceObj?.type === 'screenshare'
+    // For screen-share and ai_chat mode labels, don't send as content_label
+    // (screenshare = backend auto-detects from frames; ai_chat = topic is what matters)
+    const safeLabel = (contentSourceObj?.type === 'screenshare' || contentSourceObj?.type === 'ai_chat')
       ? null
       : (contentSourceObj?.label || null)
     fetch('/api/session/config', {
@@ -144,7 +152,8 @@ export default function LandingPage() {
   const step2Ready =
     (sourceType === 'youtube' && ytUrl.trim()) ||
     (sourceType === 'upload' && uploadedFile) ||
-    sourceType === 'screenshare'
+    sourceType === 'screenshare' ||
+    sourceType === 'ai_chat'
 
   return (
     <div className="min-h-screen bg-void flex flex-col">
@@ -243,8 +252,8 @@ export default function LandingPage() {
                   <span className="text-aurora font-medium">the content</span> simultaneously.
                 </p>
 
-                {/* Source cards */}
-                <div className="grid grid-cols-3 gap-3 mb-5">
+                {/* Source cards — 2×2 grid to fit 4 options */}
+                <div className="grid grid-cols-2 gap-3 mb-5">
                   {SOURCES.map(({ id, icon, label, hint }) => (
                     <button key={id} type="button"
                       onClick={() => { setSourceType(id); setYtError('') }}
@@ -321,6 +330,24 @@ export default function LandingPage() {
                       <div className="glass border border-aurora/30 rounded-xl px-4 py-3 text-sm text-aurora flex items-center gap-2">
                         <span>🖥</span>
                         <span>Your browser will ask for screen access when the session starts.</span>
+                      </div>
+                    </motion.div>
+                  )}
+                  {sourceType === 'ai_chat' && (
+                    <motion.div key="chat"
+                      initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }} className="overflow-hidden mb-4">
+                      <div className="glass border border-pulse/30 rounded-xl px-4 py-3 text-sm text-pulse/90 flex items-start gap-2 mb-3">
+                        <span>💬</span>
+                        <span>Algsoch will <strong>teach you</strong> through conversation — asking questions, explaining concepts, and adapting to how well you're following. Your face is still monitored for real engagement.</span>
+                      </div>
+                      <div>
+                        <label className="label-sm block mb-1.5">
+                          What do you want to learn? <span className="text-text-muted font-normal">(optional)</span>
+                        </label>
+                        <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)}
+                          placeholder="e.g. React hooks, photosynthesis, neural networks…"
+                          className="input-base w-full" autoFocus />
                       </div>
                     </motion.div>
                   )}

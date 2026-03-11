@@ -103,26 +103,13 @@ export function useBackendConnection() {
             }
           }
 
-          // Agent speech: play via browser SpeechSynthesis (guaranteed TTS fallback)
-          // backend/_speak() and greeting push {"agent_speech": text} before calling Gemini
+          // Agent speech: Gemini Realtime WebRTC handles audio — we only display the text.
+          // DO NOT call window.speechSynthesis here — that caused double-audio echo
+          // because Gemini was already speaking via the WebRTC audio track in useStreamAudio.
           if (raw.agent_speech) {
             setAgentSpeech(raw.agent_speech)
-            // Log to conversation history
+            // Log to conversation history (deduped below)
             addConversationEntry('ai', raw.agent_speech, raw.agent_action ?? null)
-            if (window.speechSynthesis) {
-              window.speechSynthesis.cancel()  // stop any current utterance first
-              const utt = new SpeechSynthesisUtterance(raw.agent_speech)
-              utt.rate  = 1.05
-              utt.pitch = 1.0
-              utt.volume = 1.0
-              // Prefer a natural-sounding voice if available
-              const voices = window.speechSynthesis.getVoices()
-              const preferred = voices.find(v =>
-                v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Samantha'))
-              )
-              if (preferred) utt.voice = preferred
-              window.speechSynthesis.speak(utt)
-            }
           }
 
           // Agent transcript: Gemini's actual spoken text (for display, no TTS to avoid duplicate)

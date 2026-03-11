@@ -25,6 +25,7 @@ export const useSessionStore = create(
   persist(
     (set, get) => ({
   // Auth / identity — default to 'learner' so stream audio can connect immediately
+  _lastConvEntry: null,   // dedup: { role, text, ts } — prevent StrictMode double-add
   userId: 'learner',
   userName: null,
   userEmail: null,
@@ -96,12 +97,22 @@ export const useSessionStore = create(
   // Conversation log: alternating AI questions / learner answers
   conversationLog: [],   // [{role:'ai'|'user', text:string, timestamp:number, action?:string}]
   addConversationEntry: (role, text, action = null) =>
-    set((state) => ({
-      conversationLog: [
-        ...state.conversationLog.slice(-39),
-        { role, text, action, timestamp: Date.now() },
-      ],
-    })),
+    set((state) => {
+      // Deduplicate: React StrictMode double-mounts can cause two WS connections
+      // that each receive the same broadcast. Skip if same role+text within 3s.
+      const last = state._lastConvEntry
+      const now = Date.now()
+      if (last && last.role === role && last.text === text && now - last.ts < 3000) {
+        return {} // duplicate within 3s — skip
+      }
+      return {
+        _lastConvEntry: { role, text, ts: now },
+        conversationLog: [
+          ...state.conversationLog.slice(-39),
+          { role, text, action, timestamp: now },
+        ],
+      }
+    }),
 
   // Agent connection state
   agentStatus: 'disconnected',   // disconnected | connecting | connected
