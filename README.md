@@ -33,27 +33,14 @@
 
 <p align="center">
   <a href="https://htmlpreview.github.io/?https://github.com/algsoch/Cognivise/blob/main/demo_html.html" target="_blank">
-    <img src="https://img.shields.io/badge/▶%20Live%20UI%20Demo-Open%20Interactive%20Preview-76b900?style=for-the-badge&logo=html5&logoColor=white" alt="Live UI Demo" height="44"/>
+    <img src="./assets/demo_preview.png" alt="Cognivise Live Session Demo" width="100%"/>
   </a>
 </p>
 
 <p align="center">
-  <a href="https://htmlpreview.github.io/?https://github.com/algsoch/Cognivise/blob/main/demo_html.html" target="_blank">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/algsoch/Cognivise/main/demo_html.html" type="text/html"/>
-      <!-- Rendered via htmlpreview.github.io — click to open the full interactive demo -->
-      <img
-        src="https://i.imgur.com/placeholder.png"
-        alt="Cognivise Live Session Demo — click to open"
-        style="border-radius:12px;border:1px solid rgba(118,185,0,0.3);max-width:100%;"
-        onerror="this.style.display='none'"
-      />
-    </picture>
-  </a>
+  <em>↑ Click the image to open the full interactive demo</em><br/>
+  Real-time metrics · AI agent panel · latency graph · eye tracking · mastery tracker — animated mock data in your browser
 </p>
-
-> 🖥 **[Click here to open the interactive session demo →](https://htmlpreview.github.io/?https://github.com/algsoch/Cognivise/blob/main/demo_html.html)**  
-> Shows the full live session UI: real-time metrics, AI agent panel, latency graph, eye tracking, mastery tracker — all running in your browser with animated mock data.
 
 <br/>
 
