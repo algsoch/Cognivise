@@ -33,7 +33,7 @@
 
 <p align="center">
   <a href="https://htmlpreview.github.io/?https://github.com/algsoch/Cognivise/blob/main/demo_html.html" target="_blank">
-    <img src="./assets/demo_preview.png" alt="Cognivise Live Session Demo" width="100%"/>
+    <img src="./assets/demo_preview_v2.png" alt="Cognivise Live Session Demo" width="100%"/>
   </a>
 </p>
 
