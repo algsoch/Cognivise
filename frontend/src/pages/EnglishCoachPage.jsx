@@ -162,8 +162,12 @@ const MODES  = [
 
 export default function EnglishCoachPage() {
   const navigate = useNavigate()
+  const setUser = useSessionStore((s) => s.setUser)
+  const startSession = useSessionStore((s) => s.startSession)
   const metrics = useSessionStore((s) => s.metrics)
   const [cameraEnabled, setCameraEnabled] = useState(false)
+  const [visionBootstrapped, setVisionBootstrapped] = useState(false)
+  const [visionBootError, setVisionBootError] = useState('')
   const [mode, setMode]         = useState('analyze')
   const [level, setLevel]       = useState('intermediate')
   const [isListening, setIsListening] = useState(false)
@@ -178,6 +182,7 @@ export default function EnglishCoachPage() {
 
   const recognitionRef = useRef(null)
   const previewRef = useRef(null)
+  const bootRef = useRef(false)
 
   // Reuse existing real-time backend WS + webcam analyzer pipeline
   useBackendConnection()
@@ -187,6 +192,60 @@ export default function EnglishCoachPage() {
     if (!previewRef.current) return
     previewRef.current.srcObject = previewStream || null
   }, [previewStream])
+
+  // Bootstrap Vision Agents session (same path as Landing -> Session) so
+  // backend EngagementProcessor is definitely initialized for /api/analyze-frame.
+  const bootstrapVisionSession = useCallback(async () => {
+    if (bootRef.current) return
+    bootRef.current = true
+    setVisionBootError('')
+
+    try {
+      const ts = Date.now()
+      const userId = `english_user_${ts}`
+      const callId = `english_call_${ts}`
+      const sessionId = `english_sess_${ts}`
+
+      setUser(userId, 'English Learner', null)
+      startSession(sessionId, callId, 'English Communication Coaching')
+
+      const joinRes = await fetch('/api/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          call_id: callId,
+          call_type: 'default',
+          user_id: userId,
+          user_name: 'English Learner',
+          topic: 'English Communication Coaching',
+        }),
+      })
+
+      if (!joinRes.ok) throw new Error(`/api/join failed (${joinRes.status})`)
+
+      await fetch('/api/session/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: 'English Communication Coaching',
+          content_type: 'ai_chat',
+          coach_mode: 'english',
+          user_id: userId,
+          call_id: callId,
+        }),
+      })
+
+      setVisionBootstrapped(true)
+    } catch (e) {
+      setVisionBootstrapped(false)
+      setVisionBootError(e?.message || 'Vision bootstrap failed')
+    }
+  }, [setUser, startSession])
+
+  useEffect(() => {
+    if (!cameraEnabled) return
+    bootstrapVisionSession()
+  }, [cameraEnabled, bootstrapVisionSession])
 
   // ── Generate target sentence for "Read & Repeat" mode ─────────────────
   const fetchSentence = useCallback(async () => {
@@ -290,7 +349,7 @@ export default function EnglishCoachPage() {
     } finally {
       setLoading(false)
     }
-  }, [transcript, mode, fetchSentence])
+  }, [transcript, mode, fetchSentence, cameraEnabled, cameraStatus, processingStatus, metrics])
 
   // Auto-analyze when STT stops and we have a transcript
   useEffect(() => {
@@ -458,8 +517,10 @@ export default function EnglishCoachPage() {
             <p className="text-[11px] text-amber-400 mt-2">Waiting for camera permission…</p>
           ) : cameraStatus === 'denied' ? (
             <p className="text-[11px] text-crimson mt-2">Camera permission denied. Allow camera in browser settings and click Enable Camera again.</p>
+          ) : !visionBootstrapped ? (
+            <p className="text-[11px] text-amber-400 mt-2">Preparing Vision Agents session… {visionBootError ? `(${visionBootError})` : ''}</p>
           ) : cameraStatus === 'running' && processingStatus === 'backend_offline' ? (
-            <p className="text-[11px] text-crimson mt-2">Camera opened, but Vision backend is not processing frames. Start backend on port 8001.</p>
+            <p className="text-[11px] text-crimson mt-2">Camera opened, but Vision SDK processor is not ready. Keep backend running and retry Enable Camera.</p>
           ) : cameraStatus === 'running' && processingStatus === 'processing' ? (
             <p className="text-[11px] text-emerald-400 mt-2">Live vision active. Feedback includes face + gaze + movement.</p>
           ) : (
