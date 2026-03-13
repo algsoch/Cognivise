@@ -162,9 +162,8 @@ const MODES  = [
 
 export default function EnglishCoachPage() {
   const navigate = useNavigate()
-  const startSession = useSessionStore((s) => s.startSession)
-  const endSession = useSessionStore((s) => s.endSession)
   const metrics = useSessionStore((s) => s.metrics)
+  const [cameraEnabled, setCameraEnabled] = useState(false)
   const [mode, setMode]         = useState('analyze')
   const [level, setLevel]       = useState('intermediate')
   const [isListening, setIsListening] = useState(false)
@@ -181,17 +180,7 @@ export default function EnglishCoachPage() {
 
   // Reuse existing real-time backend WS + webcam analyzer pipeline
   useBackendConnection()
-  useWebcamAnalysis(true)
-
-  useEffect(() => {
-    // Start a lightweight local session context so webcam analysis runs continuously
-    const sid = `eng_coach_${Date.now()}`
-    const cid = `eng_call_${Date.now()}`
-    startSession(sid, cid, 'English Communication Coaching')
-    return () => {
-      endSession()
-    }
-  }, [startSession, endSession])
+  const { cameraStatus, cameraError } = useWebcamAnalysis(cameraEnabled)
 
   // ── Generate target sentence for "Read & Repeat" mode ─────────────────
   const fetchSentence = useCallback(async () => {
@@ -268,18 +257,21 @@ export default function EnglishCoachPage() {
 
     try {
       const analysisMode = mode === 'repeat' ? 'repeat' : mode === 'topic' ? 'topic' : 'analyze'
+      const visionReady = cameraEnabled && cameraStatus === 'running' && (metrics.frameFps || 0) > 0
       const data = await analyzeWithGroq(text, analysisMode, {
-        face_detected: metrics.faceDetected,
-        gaze_on_screen: metrics.gazeOnScreen,
-        gaze_direction: metrics.gazeDirection,
-        blink_rate: metrics.blinkRate,
-        restlessness: metrics.restlessness,
-        head_yaw: metrics.headYaw,
-        head_pitch: metrics.headPitch,
-        people_count: metrics.peopleCount,
-        frame_fps: metrics.frameFps,
-        fixation_duration: metrics.fixationDuration,
-        eye_closure_duration: metrics.eyeClosureDuration,
+        ...(visionReady ? {
+          face_detected: metrics.faceDetected,
+          gaze_on_screen: metrics.gazeOnScreen,
+          gaze_direction: metrics.gazeDirection,
+          blink_rate: metrics.blinkRate,
+          restlessness: metrics.restlessness,
+          head_yaw: metrics.headYaw,
+          head_pitch: metrics.headPitch,
+          people_count: metrics.peopleCount,
+          frame_fps: metrics.frameFps,
+          fixation_duration: metrics.fixationDuration,
+          eye_closure_duration: metrics.eyeClosureDuration,
+        } : {}),
       })
       setResult(data)
       setSessionScore((prev) => [...prev, data.score ?? 70])
@@ -412,16 +404,46 @@ export default function EnglishCoachPage() {
 
         {/* Live vision analysis status */}
         <div className="bg-surface/50 border border-border rounded-xl p-3">
-          <div className="text-xs text-text-muted uppercase tracking-wide mb-2 font-medium">Vision AI (live)</div>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="bg-muted/30 rounded px-2 py-1.5">Face: <span className={metrics.faceDetected ? 'text-emerald-400' : 'text-crimson'}>{metrics.faceDetected ? 'Detected' : 'Not detected'}</span></div>
-            <div className="bg-muted/30 rounded px-2 py-1.5">FPS: <span className="text-pulse font-mono">{metrics.frameFps || 0}</span></div>
-            <div className="bg-muted/30 rounded px-2 py-1.5">Gaze: <span className="text-text-primary capitalize">{metrics.gazeDirection || 'center'}</span></div>
-            <div className="bg-muted/30 rounded px-2 py-1.5">Movement: <span className="text-text-primary font-mono">{Math.round((metrics.restlessness || 0) * 100)}%</span></div>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="text-xs text-text-muted uppercase tracking-wide font-medium">Vision AI</div>
+            <button
+              onClick={() => setCameraEnabled((v) => !v)}
+              className={`text-[11px] px-2 py-1 rounded border transition-all ${
+                cameraEnabled
+                  ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10'
+                  : 'border-border text-text-muted hover:border-emerald-500/30 hover:text-emerald-400'
+              }`}
+            >
+              {cameraEnabled ? 'Disable Camera' : 'Enable Camera'}
+            </button>
           </div>
-          <p className="text-[11px] text-text-muted mt-2">
-            English feedback now uses these live face + gaze + movement signals along with your speech.
-          </p>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-muted/30 rounded px-2 py-1.5">
+              Face:{' '}
+              <span className={
+                !cameraEnabled ? 'text-text-muted' :
+                metrics.faceDetected ? 'text-emerald-400' : 'text-crimson'
+              }>
+                {!cameraEnabled ? 'Camera off' : metrics.faceDetected ? 'Detected' : 'Not detected'}
+              </span>
+            </div>
+            <div className="bg-muted/30 rounded px-2 py-1.5">FPS: <span className="text-pulse font-mono">{cameraEnabled ? (metrics.frameFps || 0) : 0}</span></div>
+            <div className="bg-muted/30 rounded px-2 py-1.5">Gaze: <span className="text-text-primary capitalize">{cameraEnabled ? (metrics.gazeDirection || 'center') : 'off'}</span></div>
+            <div className="bg-muted/30 rounded px-2 py-1.5">Movement: <span className="text-text-primary font-mono">{cameraEnabled ? Math.round((metrics.restlessness || 0) * 100) : 0}%</span></div>
+          </div>
+          {!cameraEnabled ? (
+            <p className="text-[11px] text-text-muted mt-2">
+              Camera is off. Turn it on to include face, gaze, and movement in feedback.
+            </p>
+          ) : cameraStatus === 'requesting' ? (
+            <p className="text-[11px] text-amber-400 mt-2">Waiting for camera permission…</p>
+          ) : cameraStatus === 'denied' ? (
+            <p className="text-[11px] text-crimson mt-2">Camera permission denied. Allow camera in browser settings and click Enable Camera again.</p>
+          ) : cameraStatus === 'running' ? (
+            <p className="text-[11px] text-emerald-400 mt-2">Live vision active. Feedback includes face + gaze + movement.</p>
+          ) : (
+            <p className="text-[11px] text-text-muted mt-2">{cameraError || 'Starting camera...'}</p>
+          )}
         </div>
 
         {/* Live transcript */}

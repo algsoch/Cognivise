@@ -12,7 +12,7 @@
  *   Frontend WebSocket → useBackendConnection → updateMetrics → store
  */
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { useSessionStore } from './useSessionStore'
 
 const API_BASE = 'http://localhost:8001'
@@ -30,6 +30,8 @@ export function useWebcamAnalysis(enabled = false) {
   const busyRef      = useRef(false)   // don't queue frames if last one is still in-flight
   const fpsCountRef  = useRef(0)       // frames successfully sent this second
   const fpsTimerRef  = useRef(null)    // 1-second FPS publish interval
+  const [cameraStatus, setCameraStatus] = useState('idle') // idle | requesting | running | denied | error | stopped
+  const [cameraError, setCameraError] = useState('')
 
   const stopCapture = useCallback(() => {
     clearInterval(timerRef.current)
@@ -40,6 +42,9 @@ export function useWebcamAnalysis(enabled = false) {
       streamRef.current.getTracks().forEach(t => t.stop())
       streamRef.current = null
     }
+    setCameraStatus('stopped')
+    setCameraError('')
+    updateMetrics({ frameFps: 0 })
   }, [])
 
   useEffect(() => {
@@ -49,6 +54,8 @@ export function useWebcamAnalysis(enabled = false) {
 
     async function start() {
       try {
+        setCameraStatus('requesting')
+        setCameraError('')
         // Get webcam stream (video only — no audio needed for face analysis)
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: FRAME_WIDTH, height: FRAME_HEIGHT, facingMode: 'user' },
@@ -63,6 +70,7 @@ export function useWebcamAnalysis(enabled = false) {
         video.playsInline = true
         video.muted = true
         await video.play()
+        setCameraStatus('running')
 
         // Create canvas for frame capture
         const canvas = document.createElement('canvas')
@@ -104,7 +112,13 @@ export function useWebcamAnalysis(enabled = false) {
         }, 1000)
 
       } catch (err) {
-        if (!cancelled) console.warn('[useWebcamAnalysis] webcam access failed:', err?.message)
+        if (!cancelled) {
+          const denied = err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError'
+          setCameraStatus(denied ? 'denied' : 'error')
+          setCameraError(err?.message || 'Could not access camera')
+          updateMetrics({ frameFps: 0 })
+          console.warn('[useWebcamAnalysis] webcam access failed:', err?.message)
+        }
       }
     }
 
@@ -114,4 +128,6 @@ export function useWebcamAnalysis(enabled = false) {
       stopCapture()
     }
   }, [isInSession, enabled, stopCapture])
+
+  return { cameraStatus, cameraError }
 }
