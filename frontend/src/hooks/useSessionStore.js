@@ -29,6 +29,11 @@ const initialMetrics = {
   peopleCount: 0,        // number of faces detected in frame
   gazeDirection: 'center', // center | left | right | up | down | away
   frameHash: '',         // short hash of last analyzed frame (backend)
+  mouthOpenRatio: 0,     // normalized jaw openness from face blendshapes
+  mouthMovement: 0,      // short-term mouth movement intensity
+  speakingDetected: false, // inferred speaking state from lip activity
+  tongueScore: 0,        // heuristic tongue visibility confidence
+  tongueVisible: false,  // coarse boolean signal from blendshape
   // Latency tracking (milliseconds)
   userResponseMs: 0,     // how fast learner responded to last question
   aiResponseMs: 0,       // how fast AI answered learner's input

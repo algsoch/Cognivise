@@ -131,7 +131,20 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
   const sendRawRef      = useRef(null)
   const lastFaceSendRef = useRef(0)
   const blinkTrackRef   = useRef({ earBelow: 0, count: 0, windowStart: Date.now(), rate: 15.0 })
-  const faceMetricsRef  = useRef({ face_detected: false, gaze_on_screen: true, head_yaw: 0, head_pitch: 0, blink_rate: 15, restlessness: 0 })
+  const faceMetricsRef  = useRef({
+    face_detected: false,
+    gaze_on_screen: true,
+    head_yaw: 0,
+    head_pitch: 0,
+    blink_rate: 15,
+    restlessness: 0,
+    mouth_open_ratio: 0,
+    mouth_movement: 0,
+    speaking_detected: false,
+    tongue_score: 0,
+    tongue_visible: false,
+  })
+  const mouthTrackRef = useRef({ lastOpen: 0, emaMovement: 0 })
   sendRawRef.current = sendRaw   // always current without re-running effects
 
   // ── Init MediaPipe ───────────────────────────────────────────────────────
@@ -220,11 +233,19 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
           // Parse blendshapes for realtime expression detection
           const bs = results.faceBlendshapes?.[0]?.categories ?? []
           const getBS = name => bs.find(b => b.categoryName === name)?.score ?? 0
+          const jawOpen = getBS('jawOpen')
+          const tongueOut = getBS('tongueOut')
           expressionsRef.current = {
             isSmiling : Math.max(getBS('mouthSmileLeft'), getBS('mouthSmileRight')) > 0.28,
-            mouthOpen : getBS('jawOpen') > 0.25,
+            mouthOpen : jawOpen > 0.25,
             browUp    : Math.max(getBS('browInnerUp'), getBS('browOuterUpLeft'), getBS('browOuterUpRight')) > 0.35,
           }
+
+          const mt = mouthTrackRef.current
+          const movement = Math.min(1, Math.abs(jawOpen - mt.lastOpen) * 8)
+          mt.emaMovement = (mt.emaMovement * 0.7) + (movement * 0.3)
+          mt.lastOpen = jawOpen
+          const speakingDetected = jawOpen > 0.2 || mt.emaMovement > 0.18
 
           // ── Compute real face metrics to send to backend ─────────────
           // EAR blink tracking (left eye: 362,385,387,263,373,380 / right: 33,160,158,133,153,144)
@@ -257,10 +278,24 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
             head_yaw      : headYaw,
             head_pitch    : headPitch,
             restlessness  : 0,
+            mouth_open_ratio: +jawOpen.toFixed(3),
+            mouth_movement: +mt.emaMovement.toFixed(3),
+            speaking_detected: speakingDetected,
+            tongue_score: +tongueOut.toFixed(3),
+            tongue_visible: tongueOut > 0.2,
           }
         } else {
           lastMpLandmarksRef.current = null
-          faceMetricsRef.current = { ...faceMetricsRef.current, face_detected: false, gaze_on_screen: false }
+          faceMetricsRef.current = {
+            ...faceMetricsRef.current,
+            face_detected: false,
+            gaze_on_screen: false,
+            speaking_detected: false,
+            mouth_open_ratio: 0,
+            mouth_movement: 0,
+            tongue_score: 0,
+            tongue_visible: false,
+          }
         }
       } catch {
         lastMpLandmarksRef.current = null

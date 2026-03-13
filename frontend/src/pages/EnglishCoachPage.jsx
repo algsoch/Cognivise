@@ -264,6 +264,7 @@ export default function EnglishCoachPage() {
   const recognitionRef = useRef(null)
   const previewRef = useRef(null)
   const bootRef = useRef(false)
+  const micRetryRef = useRef(0)
 
   // Reuse existing real-time backend WS + webcam analyzer pipeline
   useBackendConnection()
@@ -370,6 +371,7 @@ export default function EnglishCoachPage() {
     setResult(null)
     setError('')
     setIsListening(true)
+    micRetryRef.current = 0
 
     rec.onresult = (e) => {
       let interim = ''
@@ -383,6 +385,14 @@ export default function EnglishCoachPage() {
     }
 
     rec.onerror = (e) => {
+      if (e.error === 'network' && micRetryRef.current < 2) {
+        micRetryRef.current += 1
+        setError('Microphone network glitch. Retrying...')
+        setTimeout(() => {
+          try { rec.start() } catch {}
+        }, 800)
+        return
+      }
       setError(`Microphone error: ${e.error}. Please allow microphone access.`)
       setIsListening(false)
     }
@@ -390,6 +400,7 @@ export default function EnglishCoachPage() {
     rec.onend = () => {
       setIsListening(false)
       setInterimText('')
+      micRetryRef.current = 0
     }
 
     recognitionRef.current = rec
@@ -428,6 +439,11 @@ export default function EnglishCoachPage() {
           frame_fps: metrics.frameFps,
           fixation_duration: metrics.fixationDuration,
           eye_closure_duration: metrics.eyeClosureDuration,
+          mouth_open_ratio: metrics.mouthOpenRatio,
+          mouth_movement: metrics.mouthMovement,
+          speaking_detected: metrics.speakingDetected,
+          tongue_score: metrics.tongueScore,
+          tongue_visible: metrics.tongueVisible,
         } : {}),
       })
       setResult(data)

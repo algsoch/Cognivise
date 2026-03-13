@@ -45,6 +45,7 @@ def clear_reasoning_loop() -> None:
 # can run face analysis on frames sent directly from the browser (bypasses
 # the Stream WebRTC path which often fails to deliver frames to the agent).
 _active_eng_processor = None
+_frame_only_processor = None
 
 def set_engagement_processor(proc) -> None:
     global _active_eng_processor
@@ -52,6 +53,22 @@ def set_engagement_processor(proc) -> None:
 
 def get_engagement_processor():
     return _active_eng_processor
+
+
+def _get_frame_processor():
+    """Return an EngagementProcessor for frame analysis, creating a fallback if needed."""
+    global _frame_only_processor
+    if _active_eng_processor is not None:
+        return _active_eng_processor
+    if _frame_only_processor is None:
+        try:
+            from backend.app.processors.engagement_processor import EngagementProcessor
+            _frame_only_processor = EngagementProcessor(fps=5)
+            logger.info("Created fallback EngagementProcessor for /api/analyze-frame")
+        except Exception as exc:
+            logger.warning("Could not create fallback EngagementProcessor: %s", exc)
+            return None
+    return _frame_only_processor
 
 # ── AgentLauncher reference — set by main.py after launcher is initialised ──
 # The /api/join endpoint uses this to trigger launcher.start_session()
@@ -218,6 +235,11 @@ async def ws_metrics(websocket: WebSocket):
                                 "head_pitch"          : round(sig.head_pitch, 1),
                                 "head_pose_confidence": 1.0,
                                 "engagement_score"    : round(score, 1),
+                                "mouth_open_ratio"    : float(fm.get("mouth_open_ratio", 0.0)),
+                                "mouth_movement"      : float(fm.get("mouth_movement", 0.0)),
+                                "speaking_detected"   : bool(fm.get("speaking_detected", False)),
+                                "tongue_score"        : float(fm.get("tongue_score", 0.0)),
+                                "tongue_visible"      : bool(fm.get("tongue_visible", False)),
                             })
                         except Exception as _fe:
                             logger.debug("face_metrics inject error: %s", _fe)
@@ -347,7 +369,7 @@ async def analyze_frame(request: Request):
     import hashlib
     import numpy as np
 
-    proc = _active_eng_processor
+    proc = _get_frame_processor()
     if proc is None:
         return {"ok": False, "reason": "processor not ready"}
 
@@ -509,7 +531,12 @@ async def english_coach_analyze(request: Request):
                 f"head_yaw={face_metrics.get('head_yaw')}, "
                 f"head_pitch={face_metrics.get('head_pitch')}, "
                 f"people_count={face_metrics.get('people_count')}, "
-                f"frame_fps={face_metrics.get('frame_fps')}"
+                f"frame_fps={face_metrics.get('frame_fps')}, "
+                f"mouth_open_ratio={face_metrics.get('mouth_open_ratio')}, "
+                f"mouth_movement={face_metrics.get('mouth_movement')}, "
+                f"speaking_detected={face_metrics.get('speaking_detected')}, "
+                f"tongue_score={face_metrics.get('tongue_score')}, "
+                f"tongue_visible={face_metrics.get('tongue_visible')}"
             )
         else:
             vision_context = "No visual metrics available"

@@ -58,6 +58,18 @@ export default function MonitoringScopeCard({ title = 'Monitoring Scope', compac
         <div className="bg-surface/50 border border-border/50 rounded px-2 py-1">
           Blink/min <span className="text-text-primary font-mono">{Number(metrics.blinkRate || 0).toFixed(1)}</span>
         </div>
+        <div className="bg-surface/50 border border-border/50 rounded px-2 py-1">
+          Mouth <span className="text-text-primary font-mono">{Number(metrics.mouthOpenRatio || 0).toFixed(2)}</span>
+        </div>
+        <div className="bg-surface/50 border border-border/50 rounded px-2 py-1">
+          Mouth mv <span className="text-text-primary font-mono">{Number(metrics.mouthMovement || 0).toFixed(2)}</span>
+        </div>
+        <div className="bg-surface/50 border border-border/50 rounded px-2 py-1">
+          Speaking <span className="text-text-primary">{metrics.speakingDetected ? 'yes' : 'no'}</span>
+        </div>
+        <div className="bg-surface/50 border border-border/50 rounded px-2 py-1">
+          Tongue <span className="text-text-primary">{metrics.tongueVisible ? 'visible' : 'low'}</span>
+        </div>
       </div>
 
       {!compact && (

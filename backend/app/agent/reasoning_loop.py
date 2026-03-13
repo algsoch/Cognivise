@@ -105,6 +105,7 @@ class ReasoningLoop:
         # 2-minute periodic comprehension check
         self._last_periodic_question_at: float = time.time()   # tracks 2-min timer
         self._periodic_question_interval: float = 120.0        # fire every 2 minutes
+        self._coach_mode: str = ""
 
     def set_processors(self, engagement, attention, cognitive_load) -> None:
         self._eng_processor = engagement
@@ -197,6 +198,14 @@ class ReasoningLoop:
         eng_signal = self._eng_processor.latest_signal if self._eng_processor else EngagementSignal()
         att_signal = self._att_processor.latest_signal if self._att_processor else AttentionSignal()
         cog_signal = self._cog_processor.latest_signal if self._cog_processor else CognitiveLoadSignal()
+
+        # Keep mode in sync with latest frontend config.
+        try:
+            from backend.app.api.server import get_pending_session_config
+            cfg = get_pending_session_config()
+            self._coach_mode = str(cfg.get("coach_mode") or "").strip().lower()
+        except Exception:
+            pass
 
         # ── Screen content analysis (every 90s) ──────────────────────────────
         # Grabs the latest video frame, extracts the on-screen topic via Gemini Flash,
@@ -306,6 +315,11 @@ class ReasoningLoop:
         asyncio.create_task(self._memory.save_engagement_history(
             session.session_id, session.user_id, snap
         ))
+
+        # English coach uses a separate Groq feedback loop. Keep real-time state
+        # updates active but suppress autonomous tutoring interventions here.
+        if self._coach_mode == "english":
+            return
 
         # Guard 1: Don't re-ask while a question is still pending an answer (45s grace)
         # This is THE main fix for repeated same-question spam when learner doesn't respond.
