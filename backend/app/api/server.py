@@ -418,18 +418,23 @@ Return ONLY a valid JSON object (no markdown, no explanation) with this exact st
     {{"word": "<original word>", "suggestion": "<better word>", "issue": "<brief explanation>"}}
   ],
   "grammar_notes": ["<note 1>", "<note 2>"],
+    "pronunciation_notes": ["<note>"],
+    "delivery_notes": ["<note>"],
+    "focus_feedback": "<how gaze/movement affected communication>",
   "overall_feedback": "<2-3 sentence constructive paragraph>",
-  "improvement_tip": "<1 specific actionable tip for today>"
+    "improvement_tip": "<1 specific actionable tip for today>",
+    "action_plan": ["<step 1>", "<step 2>", "<step 3>"]
 }}
 
 Rules:
 - score: 100 = perfect native-speaker English, 0 = incomprehensible
 - corrections: only for WRONG or awkward word choices, filler words, unclear expressions
 - grammar_notes: sentence-level grammar issues (tense, articles, prepositions, etc.)
-- Keep all values concise. Maximum 3 corrections. Maximum 3 grammar notes.
+- Keep all values concise. Maximum 4 corrections/grammar/pronunciation/delivery notes.
 - If speech is perfect, return empty arrays for corrections and grammar_notes.
 - You MUST incorporate the visual context (face/gaze/movement). If the learner is looking away,
   has high movement/restlessness, or no face detected, mention it in feedback and give one concrete fix.
+- action_plan must contain exactly 3 items.
 
 Visual context: {vision_context}
 Learner said: "{transcript}"
@@ -446,8 +451,12 @@ Return ONLY valid JSON (no markdown):
     {{"word": "<problematic word>", "suggestion": "<correct form>", "issue": "<explanation>"}}
   ],
   "grammar_notes": ["<note>"],
+    "pronunciation_notes": ["<note>"],
+    "delivery_notes": ["<note>"],
+    "focus_feedback": "<how gaze/movement affected communication>",
   "overall_feedback": "<2-3 sentence evaluation of clarity and fluency>",
-  "improvement_tip": "<specific pronunciation or fluency tip>"
+    "improvement_tip": "<specific pronunciation or fluency tip>",
+    "action_plan": ["<step 1>", "<step 2>", "<step 3>"]
 }}
 
 Visual context: {vision_context}
@@ -478,9 +487,6 @@ async def english_coach_analyze(request: Request):
     except ImportError as e:
         return {"ok": False, "error": f"groq package not installed: {e}"}
 
-    if not settings.groq_api_key:
-        return {"ok": False, "error": "GROQ_API_KEY not configured"}
-
     try:
         body = await request.json()
         transcript = (body.get("transcript") or "").strip()
@@ -505,28 +511,49 @@ async def english_coach_analyze(request: Request):
         else:
             vision_context = "No visual metrics available"
 
-        if mode == "repeat":
-            prompt = _GROQ_REPEAT_PROMPT.format(transcript=transcript, vision_context=vision_context)
+        if not settings.groq_api_key:
+            result = {
+                "score": 65,
+                "tone": "neutral",
+                "corrections": [],
+                "grammar_notes": ["GROQ_API_KEY is not configured."],
+                "pronunciation_notes": [],
+                "delivery_notes": [],
+                "focus_feedback": "No advanced model analysis available.",
+                "overall_feedback": "AI coaching model is unavailable right now.",
+                "improvement_tip": "Configure GROQ_API_KEY and try again.",
+                "action_plan": ["Set GROQ_API_KEY.", "Restart backend.", "Retry one short response."],
+                "model_used": "none",
+            }
         else:
-            prompt = _GROQ_ANALYZE_PROMPT.format(transcript=transcript, vision_context=vision_context)
+            if mode == "repeat":
+                prompt = _GROQ_REPEAT_PROMPT.format(transcript=transcript, vision_context=vision_context)
+            else:
+                prompt = _GROQ_ANALYZE_PROMPT.format(transcript=transcript, vision_context=vision_context)
+            client = Groq(api_key=settings.groq_api_key)
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=900,
+            )
+            raw = (response.choices[0].message.content or "").strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+                raw = raw.strip()
+            result = _json.loads(raw)
+            result["model_used"] = "groq"
 
-        client   = Groq(api_key=settings.groq_api_key)
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=700,
-        )
-        raw = (response.choices[0].message.content or "").strip()
+        # Ensure advanced keys always exist for frontend rendering consistency
+        result.setdefault("corrections", [])
+        result.setdefault("grammar_notes", [])
+        result.setdefault("pronunciation_notes", [])
+        result.setdefault("delivery_notes", [])
+        result.setdefault("focus_feedback", "")
+        result.setdefault("action_plan", [])
 
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-            raw = raw.strip()
-
-        result = _json.loads(raw)
         result["ok"] = True
         result["vision_used"] = bool(face_metrics)
         return result

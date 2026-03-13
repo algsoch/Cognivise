@@ -10,6 +10,13 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useSessionStore } from '../hooks/useSessionStore'
 import { useBackendConnection } from '../hooks/useBackendConnection'
 import { useWebcamAnalysis } from '../hooks/useWebcamAnalysis'
+import AgentStatusBar from '../components/AgentStatusBar'
+import AIAgentPanel from '../components/AIAgentPanel'
+import EngagementMeter from '../components/EngagementMeter'
+import CognitiveLoadIndicator from '../components/CognitiveLoadIndicator'
+import AttentionWaveform from '../components/AttentionWaveform'
+import EyeTrackingPanel from '../components/EyeTrackingPanel'
+import InterventionFeed from '../components/InterventionFeed'
 
 const API_BASE = `${window.location.protocol}//${window.location.hostname}:8001`
 
@@ -58,7 +65,19 @@ function ScoreBadge({ score }) {
 // ── Feedback card ─────────────────────────────────────────────────────────────
 function FeedbackCard({ result, transcript }) {
   if (!result) return null
-  const { score, corrections = [], grammar_notes = [], overall_feedback, improvement_tip, tone } = result
+  const {
+    score,
+    corrections = [],
+    grammar_notes = [],
+    pronunciation_notes = [],
+    delivery_notes = [],
+    focus_feedback,
+    action_plan = [],
+    overall_feedback,
+    improvement_tip,
+    tone,
+    model_used,
+  } = result
 
   return (
     <motion.div
@@ -118,6 +137,41 @@ function FeedbackCard({ result, transcript }) {
         </div>
       )}
 
+      {pronunciation_notes.length > 0 && (
+        <div>
+          <div className="text-xs text-text-muted uppercase tracking-wide mb-2 font-medium">🗣 Pronunciation</div>
+          <ul className="space-y-1">
+            {pronunciation_notes.map((note, i) => (
+              <li key={i} className="text-xs text-text-secondary flex items-start gap-1.5">
+                <span className="text-emerald-400 mt-0.5 flex-shrink-0">•</span>
+                {note}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {delivery_notes.length > 0 && (
+        <div>
+          <div className="text-xs text-text-muted uppercase tracking-wide mb-2 font-medium">🎯 Delivery</div>
+          <ul className="space-y-1">
+            {delivery_notes.map((note, i) => (
+              <li key={i} className="text-xs text-text-secondary flex items-start gap-1.5">
+                <span className="text-amber-400 mt-0.5 flex-shrink-0">•</span>
+                {note}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {focus_feedback && (
+        <div className="bg-aurora/10 border border-aurora/20 rounded-lg px-3 py-2">
+          <div className="text-xs text-aurora font-medium mb-1">👁 Vision & Focus</div>
+          <p className="text-xs text-text-secondary leading-relaxed">{focus_feedback}</p>
+        </div>
+      )}
+
       {/* Overall feedback */}
       {overall_feedback && (
         <div className="bg-pulse/10 border border-pulse/20 rounded-lg px-3 py-2">
@@ -132,6 +186,21 @@ function FeedbackCard({ result, transcript }) {
           <div className="text-xs text-emerald-400 font-medium mb-1">🚀 Today's Tip</div>
           <p className="text-xs text-text-secondary leading-relaxed">{improvement_tip}</p>
         </div>
+      )}
+
+      {action_plan.length > 0 && (
+        <div className="bg-surface/40 border border-border rounded-lg px-3 py-2">
+          <div className="text-xs text-text-muted uppercase tracking-wide mb-1 font-medium">3-Step Action Plan</div>
+          <ol className="space-y-1 text-xs text-text-secondary list-decimal ml-4">
+            {action_plan.slice(0, 3).map((step, i) => (
+              <li key={i}>{step}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {model_used && (
+        <div className="text-[10px] text-text-muted text-right font-mono uppercase">Model: {model_used}</div>
       )}
     </motion.div>
   )
@@ -363,7 +432,11 @@ export default function EnglishCoachPage() {
     : null
 
   return (
-    <div className="min-h-screen bg-void">
+    <div className="h-screen bg-void flex flex-col overflow-hidden">
+      <AgentStatusBar />
+
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        <div className="flex-1 overflow-y-auto">
       {/* Header */}
       <motion.header
         initial={{ opacity: 0, y: -12 }}
@@ -603,6 +676,21 @@ export default function EnglishCoachPage() {
             </div>
           </div>
         )}
+      </div>
+      </div>
+
+      {/* Right metrics panel: aligned with other learning modes */}
+      <div className="w-[280px] flex-shrink-0 flex flex-col gap-3 p-4 border-l border-border overflow-y-auto">
+        <AIAgentPanel />
+        <div className="grid grid-cols-2 gap-2">
+          <EngagementMeter score={metrics.engagementScore} label="Engagement" compact />
+          <EngagementMeter score={metrics.attentionScore} label="Attention" compact />
+        </div>
+        <CognitiveLoadIndicator score={metrics.cognitiveLoadScore} />
+        <AttentionWaveform />
+        <EyeTrackingPanel />
+        <InterventionFeed />
+      </div>
       </div>
     </div>
   )
