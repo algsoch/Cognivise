@@ -265,6 +265,11 @@ export default function EnglishCoachPage() {
   const [eventLog, setEventLog] = useState([])
   const [readinessOverride, setReadinessOverride] = useState(false)
   const [topicPrompt, setTopicPrompt] = useState('')
+  const [visualMode, setVisualMode] = useState('composite') // composite | landmarks | raw
+  const [frameHistory, setFrameHistory] = useState([])
+  const [frameCursor, setFrameCursor] = useState(0)
+  const [lastFeedbackSpeech, setLastFeedbackSpeech] = useState('')
+  const [speechVoice, setSpeechVoice] = useState(null)
 
   const recognitionRef = useRef(null)
   const previewRef = useRef(null)
@@ -275,6 +280,17 @@ export default function EnglishCoachPage() {
   useEffect(() => {
     const t = setInterval(() => setInspectorTick(Date.now()), 1000)
     return () => clearInterval(t)
+  }, [])
+
+  useEffect(() => {
+    const pickVoice = () => {
+      const voices = window.speechSynthesis?.getVoices?.() || []
+      const preferred = voices.find((v) => /Google US English|Samantha|Karen|Moira|Daniel|en-US/i.test(v.name))
+      setSpeechVoice(preferred || voices[0] || null)
+    }
+    pickVoice()
+    window.speechSynthesis?.addEventListener?.('voiceschanged', pickVoice)
+    return () => window.speechSynthesis?.removeEventListener?.('voiceschanged', pickVoice)
   }, [])
 
   // Reuse existing real-time backend WS + webcam analyzer pipeline
@@ -301,6 +317,16 @@ export default function EnglishCoachPage() {
       pushEvent('frame', `received hash ${metrics.frameHash || 'n/a'}`)
     }
   }, [freshness.frameAt, metrics.frameHash, pushEvent])
+
+  useEffect(() => {
+    if (!monitoredFrame || !metrics.frameHash) return
+    setFrameHistory((prev) => {
+      if (prev[0]?.hash === metrics.frameHash) return prev
+      const next = [{ src: monitoredFrame, hash: metrics.frameHash, ts: Date.now() }, ...prev].slice(0, 40)
+      setFrameCursor(0)
+      return next
+    })
+  }, [monitoredFrame, metrics.frameHash])
 
   useEffect(() => {
     if (!metrics.faceDetected) return
@@ -456,6 +482,23 @@ export default function EnglishCoachPage() {
     setIsListening(false)
   }, [])
 
+  const speakText = useCallback((text) => {
+    const spoken = (text || '').trim()
+    if (!spoken || !window.speechSynthesis) return
+    try {
+      window.speechSynthesis.cancel()
+      const u = new SpeechSynthesisUtterance(spoken.replace(/Algsoch/g, 'Alagsoch'))
+      if (speechVoice) u.voice = speechVoice
+      u.rate = 1.0
+      u.pitch = 1.0
+      u.volume = 1.0
+      window.speechSynthesis.speak(u)
+      pushEvent('tts', `speak ${spoken.slice(0, 64)}${spoken.length > 64 ? '…' : ''}`)
+    } catch (e) {
+      pushEvent('tts', `error ${String(e?.message || e)}`)
+    }
+  }, [speechVoice, pushEvent])
+
   // ── Analyze transcript ─────────────────────────────────────────────────
   const handleAnalyze = useCallback(async () => {
     const text = transcript.trim()
@@ -509,21 +552,15 @@ export default function EnglishCoachPage() {
       const reqMs = Math.max(0, Math.round(performance.now() - reqStarted))
       pushEvent('groq', `response ${reqMs}ms score=${data.score ?? 'n/a'}`)
       const shortOverall = (data.overall_feedback || '').split('.').slice(0, 1).join('.').trim()
-      const spokenFeedback = [shortOverall, data.improvement_tip].filter(Boolean).join('. ').trim()
+      const spokenFeedback = [shortOverall || data.overall_feedback || '', data.improvement_tip || ''].filter(Boolean).join('. ').trim()
       if (spokenFeedback) {
+        setLastFeedbackSpeech(spokenFeedback)
         setAgentTranscript(spokenFeedback)
         setAgentSpeech(spokenFeedback)
         setSignalFreshness('agentSpeechAt')
         addConversationEntry('ai', spokenFeedback, 'english_feedback')
         if (speakFeedback && window.speechSynthesis) {
-          window.speechSynthesis.cancel()
-          const u = new SpeechSynthesisUtterance(spokenFeedback.replace(/Algsoch/g, 'Alagsoch'))
-          const voices = window.speechSynthesis.getVoices()
-          const preferred = voices.find((v) => /Google US English|Samantha|Karen|Moira|en-US/i.test(v.name))
-          if (preferred) u.voice = preferred
-          u.rate = 1.12
-          u.pitch = 1.02
-          window.speechSynthesis.speak(u)
+          speakText(spokenFeedback)
         }
       }
       setSessionScore((prev) => [...prev, data.score ?? 70])
@@ -555,6 +592,7 @@ export default function EnglishCoachPage() {
     setSignalFreshness,
     addConversationEntry,
     speakFeedback,
+    speakText,
     pushEvent,
   ])
 
@@ -687,10 +725,36 @@ export default function EnglishCoachPage() {
             </button>
           </div>
           <div className="text-[11px] text-text-muted mb-2">Frame-by-frame analysis at ~{metrics.frameFps || 0} fps. Left: live camera with overlay. Right: last analyzed frame sent to backend.</div>
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              onClick={() => setVisualMode('composite')}
+              className={`text-[11px] px-2 py-1 rounded border ${visualMode === 'composite' ? 'border-pulse/50 bg-pulse/10 text-pulse' : 'border-border text-text-muted'}`}
+            >
+              Composite
+            </button>
+            <button
+              onClick={() => setVisualMode('landmarks')}
+              className={`text-[11px] px-2 py-1 rounded border ${visualMode === 'landmarks' ? 'border-pulse/50 bg-pulse/10 text-pulse' : 'border-border text-text-muted'}`}
+            >
+              Landmarks only
+            </button>
+            <button
+              onClick={() => setVisualMode('raw')}
+              className={`text-[11px] px-2 py-1 rounded border ${visualMode === 'raw' ? 'border-pulse/50 bg-pulse/10 text-pulse' : 'border-border text-text-muted'}`}
+            >
+              Raw frame only
+            </button>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-lg overflow-hidden border border-border bg-black/40 aspect-video relative">
-              <video ref={topPreviewRef} autoPlay muted playsInline className="w-full h-full object-contain bg-black" />
-              <FaceMonitorOverlay videoRef={topPreviewRef} metrics={metrics} />
+              <video
+                ref={topPreviewRef}
+                autoPlay
+                muted
+                playsInline
+                className={`w-full h-full object-contain bg-black ${visualMode === 'landmarks' ? 'opacity-0' : 'opacity-100'}`}
+              />
+              {visualMode !== 'raw' && <FaceMonitorOverlay videoRef={topPreviewRef} metrics={metrics} />}
             </div>
             <div className="rounded-lg overflow-hidden border border-border bg-black/40 aspect-video flex items-center justify-center">
               {monitoredFrame ? (
@@ -748,6 +812,12 @@ export default function EnglishCoachPage() {
             {speakFeedback ? 'AI voice on' : 'AI voice off'}
           </button>
           <button
+            onClick={() => speakText(lastFeedbackSpeech || 'Voice test. I am your English coach.')}
+            className="text-xs px-3 py-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+          >
+            Speak now
+          </button>
+          <button
             onClick={() => setShowInspector((v) => !v)}
             className={`text-xs px-3 py-1 rounded-full border transition-all ${
               showInspector
@@ -780,6 +850,29 @@ export default function EnglishCoachPage() {
               ) : (
                 <span className="text-xs text-text-muted">No analyzed frame in inspector yet</span>
               )}
+            </div>
+            <div className="bg-surface/50 border border-border rounded-lg p-2">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-text-muted mb-1">Frame timeline scrub</div>
+              <input
+                type="range"
+                min={0}
+                max={Math.max(0, frameHistory.length - 1)}
+                value={Math.min(frameCursor, Math.max(0, frameHistory.length - 1))}
+                onChange={(e) => setFrameCursor(Number(e.target.value))}
+                className="w-full"
+              />
+              <div className="text-[11px] text-text-secondary mt-1">
+                {frameHistory.length > 0
+                  ? `Index ${frameCursor + 1}/${frameHistory.length} · hash ${frameHistory[frameCursor]?.hash || 'n/a'}`
+                  : 'No frame history yet'}
+              </div>
+              <div className="rounded-md overflow-hidden border border-border mt-2 aspect-video bg-black/40 flex items-center justify-center">
+                {frameHistory[frameCursor]?.src ? (
+                  <img src={frameHistory[frameCursor].src} alt="Timeline frame" className="w-full h-full object-contain bg-black" />
+                ) : (
+                  <span className="text-[11px] text-text-muted">No frame selected</span>
+                )}
+              </div>
             </div>
             <div className="border border-border/50 rounded-lg p-2 bg-surface/40">
               <div className="text-[10px] font-mono uppercase tracking-widest text-text-muted mb-1">Raw event log</div>
@@ -861,86 +954,6 @@ export default function EnglishCoachPage() {
           <p className="text-xs text-text-muted mt-3">
             {isListening ? 'Listening… tap to stop' : loading ? 'Analyzing…' : controlsLocked ? 'Waiting for readiness (green)' : 'Tap to speak'}
           </p>
-        </div>
-
-        {/* Live vision analysis status */}
-        <div className="bg-surface/50 border border-border rounded-xl p-3">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <div className="text-xs text-text-muted uppercase tracking-wide font-medium">Vision AI</div>
-            <button
-              onClick={() => setCameraEnabled((v) => !v)}
-              className={`text-[11px] px-2 py-1 rounded border transition-all ${
-                cameraEnabled
-                  ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10'
-                  : 'border-border text-text-muted hover:border-emerald-500/30 hover:text-emerald-400'
-              }`}
-            >
-              {cameraEnabled ? 'Disable Camera' : 'Enable Camera'}
-            </button>
-          </div>
-
-          {cameraEnabled && (
-            <div className="mb-2 rounded-lg overflow-hidden border border-border bg-black/40 aspect-video relative">
-              <video
-                ref={previewRef}
-                autoPlay
-                muted
-                playsInline
-                className="w-full h-full object-contain bg-black"
-              />
-              <FaceMonitorOverlay videoRef={previewRef} metrics={metrics} />
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="bg-muted/30 rounded px-2 py-1.5">
-              Face:{' '}
-              <span className={
-                !cameraEnabled ? 'text-text-muted' :
-                metrics.faceDetected ? 'text-emerald-400' : 'text-crimson'
-              }>
-                {!cameraEnabled ? 'Camera off' : metrics.faceDetected ? 'Detected' : 'Not detected'}
-              </span>
-            </div>
-            <div className="bg-muted/30 rounded px-2 py-1.5">FPS: <span className="text-pulse font-mono">{cameraEnabled ? (metrics.frameFps || 0) : 0}</span></div>
-            <div className="bg-muted/30 rounded px-2 py-1.5">Gaze: <span className="text-text-primary capitalize">{cameraEnabled ? (metrics.faceDetected ? (metrics.gazeDirection || 'center') : 'no-face') : 'off'}</span></div>
-            <div className="bg-muted/30 rounded px-2 py-1.5">Movement: <span className="text-text-primary font-mono">{cameraEnabled ? Math.round((metrics.restlessness || 0) * 100) : 0}%</span></div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-xs mt-2">
-            <div className="bg-muted/30 rounded px-2 py-1.5">Frame Hash: <span className="text-pulse font-mono">{cameraEnabled ? (metrics.frameHash || '—') : '—'}</span></div>
-            <div className="bg-muted/30 rounded px-2 py-1.5">People: <span className="text-text-primary font-mono">{cameraEnabled ? (metrics.peopleCount ?? 0) : 0}</span></div>
-            <div className="bg-muted/30 rounded px-2 py-1.5">Blink/min: <span className="text-text-primary font-mono">{cameraEnabled ? Number(metrics.blinkRate || 0).toFixed(1) : '0.0'}</span></div>
-            <div className="bg-muted/30 rounded px-2 py-1.5">Focus: <span className="text-text-primary font-mono">{cameraEnabled ? Math.round(metrics.focusDuration || 0) : 0}s</span></div>
-          </div>
-
-          <div className="mt-2 text-[11px] rounded border border-border/40 bg-surface/30 px-2 py-1.5">
-            Vision SDK Status:{' '}
-            <span className={
-              visionSdkStatus === 'active' ? 'text-emerald-400 font-semibold' :
-              visionSdkStatus === 'backend-offline' || visionSdkStatus === 'permission-denied' ? 'text-crimson font-semibold' :
-              'text-amber-400 font-semibold'
-            }>
-              {visionSdkStatus}
-            </span>
-          </div>
-          {!cameraEnabled ? (
-            <p className="text-[11px] text-text-muted mt-2">
-              Camera is off. Turn it on to include face, gaze, and movement in feedback.
-            </p>
-          ) : cameraStatus === 'requesting' ? (
-            <p className="text-[11px] text-amber-400 mt-2">Waiting for camera permission…</p>
-          ) : cameraStatus === 'denied' ? (
-            <p className="text-[11px] text-crimson mt-2">Camera permission denied. Allow camera in browser settings and click Enable Camera again.</p>
-          ) : !visionBootstrapped ? (
-            <p className="text-[11px] text-amber-400 mt-2">Preparing Vision Agents session… {visionBootError ? `(${visionBootError})` : ''}</p>
-          ) : cameraStatus === 'running' && processingStatus === 'backend_offline' ? (
-            <p className="text-[11px] text-crimson mt-2">Camera opened, but Vision SDK processor is not ready. Keep backend running and retry Enable Camera.</p>
-          ) : cameraStatus === 'running' && processingStatus === 'processing' ? (
-            <p className="text-[11px] text-emerald-400 mt-2">Live vision active. Feedback includes face + gaze + movement + speech-mouth cues.</p>
-          ) : (
-            <p className="text-[11px] text-text-muted mt-2">{cameraError || 'Starting camera...'}</p>
-          )}
         </div>
 
         {/* Live transcript */}
