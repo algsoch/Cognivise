@@ -34,6 +34,7 @@ const SOURCES = [
   { id: 'upload',      icon: '📁',  label: 'Upload Video',   hint: 'MP4, MOV, WebM' },
   { id: 'screenshare', icon: '🖥',  label: 'Screen Share',   hint: 'Share a tab/window' },
   { id: 'ai_chat',     icon: '💬',  label: 'Learn with AI',  hint: 'Talk & get monitored' },
+  { id: 'english_coach', icon: '🗣', label: 'English AI Coach', hint: 'Speech feedback & improvement' },
 ]
 
 export default function LandingPage() {
@@ -93,6 +94,11 @@ export default function LandingPage() {
   const emailValid = !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
 
   const handleStart = (skipContent = false) => {
+    if (sourceType === 'english_coach') {
+      navigate('/english-coach')
+      return
+    }
+
     const userId    = `user_${name.toLowerCase().replace(/\s+/g, '_')}_${Date.now()}`
     const callId    = `call_${Date.now()}`
     const sessionId = `sess_${Date.now()}`
@@ -172,7 +178,8 @@ export default function LandingPage() {
     (sourceType === 'youtube' && ytUrl.trim()) ||
     (sourceType === 'upload' && uploadedFile) ||
     sourceType === 'screenshare' ||
-    sourceType === 'ai_chat'
+    sourceType === 'ai_chat' ||
+    sourceType === 'english_coach'
 
   return (
     <div className="min-h-screen bg-void flex flex-col">
