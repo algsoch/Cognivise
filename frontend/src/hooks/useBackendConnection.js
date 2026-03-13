@@ -85,6 +85,7 @@ function mapMetrics(raw) {
   if (raw.eye_closure_duration !== undefined) patch.eyeClosureDuration = raw.eye_closure_duration
   if (raw.people_count        !== undefined) patch.peopleCount        = raw.people_count
   if (raw.gaze_direction      !== undefined) patch.gazeDirection      = raw.gaze_direction
+  if (raw.frame_hash          !== undefined) patch.frameHash          = raw.frame_hash
   // Latency tracking (milliseconds) — only overwrite if backend sends a real measurement (> 0)
   if (raw.user_response_ms > 0) patch.userResponseMs = raw.user_response_ms
   if (raw.ai_response_ms   > 0) patch.aiResponseMs   = raw.ai_response_ms

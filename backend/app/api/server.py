@@ -344,6 +344,7 @@ async def analyze_frame(request: Request):
     Body: { "frame": "<base64 JPEG>", "width": int, "height": int }
     """
     import base64
+    import hashlib
     import numpy as np
 
     proc = _active_eng_processor
@@ -358,6 +359,7 @@ async def analyze_frame(request: Request):
 
         # Decode JPEG bytes → RGB numpy array
         raw_bytes = base64.b64decode(b64.split(",")[-1])  # strip data-URL prefix
+        frame_hash = hashlib.sha1(raw_bytes).hexdigest()[:10]
         arr = np.frombuffer(raw_bytes, dtype=np.uint8)
         import cv2
         bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
@@ -398,6 +400,7 @@ async def analyze_frame(request: Request):
             "eye_closure_duration": round(proc._eye_closure_duration, 3),
             "gaze_direction"      : gaze_dir,
             "people_count"        : proc._people_count,
+            "frame_hash"          : frame_hash,
         }
         MetricsBroadcaster.instance().push(metrics)
         return {"ok": True, **metrics}

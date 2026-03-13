@@ -17,6 +17,7 @@ import CognitiveLoadIndicator from '../components/CognitiveLoadIndicator'
 import AttentionWaveform from '../components/AttentionWaveform'
 import EyeTrackingPanel from '../components/EyeTrackingPanel'
 import InterventionFeed from '../components/InterventionFeed'
+import FaceMonitorOverlay from '../components/FaceMonitorOverlay'
 
 const API_BASE = `${window.location.protocol}//${window.location.hostname}:8001`
 
@@ -431,6 +432,13 @@ export default function EnglishCoachPage() {
     ? Math.round(sessionScore.reduce((a, b) => a + b, 0) / sessionScore.length)
     : null
 
+  const visionSdkStatus =
+    !cameraEnabled ? 'camera-off' :
+    !visionBootstrapped ? 'bootstrapping' :
+    (cameraStatus === 'running' && processingStatus === 'processing') ? 'active' :
+    (cameraStatus === 'running' && processingStatus === 'backend_offline') ? 'backend-offline' :
+    (cameraStatus === 'denied') ? 'permission-denied' : 'starting'
+
   return (
     <div className="h-screen bg-void flex flex-col overflow-hidden">
       <AgentStatusBar />
@@ -559,7 +567,7 @@ export default function EnglishCoachPage() {
           </div>
 
           {cameraEnabled && (
-            <div className="mb-2 rounded-lg overflow-hidden border border-border bg-black/40 aspect-video">
+            <div className="mb-2 rounded-lg overflow-hidden border border-border bg-black/40 aspect-video relative">
               <video
                 ref={previewRef}
                 autoPlay
@@ -567,6 +575,7 @@ export default function EnglishCoachPage() {
                 playsInline
                 className="w-full h-full object-cover"
               />
+              <FaceMonitorOverlay videoRef={previewRef} metrics={metrics} />
             </div>
           )}
 
@@ -583,6 +592,24 @@ export default function EnglishCoachPage() {
             <div className="bg-muted/30 rounded px-2 py-1.5">FPS: <span className="text-pulse font-mono">{cameraEnabled ? (metrics.frameFps || 0) : 0}</span></div>
             <div className="bg-muted/30 rounded px-2 py-1.5">Gaze: <span className="text-text-primary capitalize">{cameraEnabled ? (metrics.gazeDirection || 'center') : 'off'}</span></div>
             <div className="bg-muted/30 rounded px-2 py-1.5">Movement: <span className="text-text-primary font-mono">{cameraEnabled ? Math.round((metrics.restlessness || 0) * 100) : 0}%</span></div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-xs mt-2">
+            <div className="bg-muted/30 rounded px-2 py-1.5">Frame Hash: <span className="text-pulse font-mono">{cameraEnabled ? (metrics.frameHash || '—') : '—'}</span></div>
+            <div className="bg-muted/30 rounded px-2 py-1.5">People: <span className="text-text-primary font-mono">{cameraEnabled ? (metrics.peopleCount ?? 0) : 0}</span></div>
+            <div className="bg-muted/30 rounded px-2 py-1.5">Blink/min: <span className="text-text-primary font-mono">{cameraEnabled ? Number(metrics.blinkRate || 0).toFixed(1) : '0.0'}</span></div>
+            <div className="bg-muted/30 rounded px-2 py-1.5">Focus: <span className="text-text-primary font-mono">{cameraEnabled ? Math.round(metrics.focusDuration || 0) : 0}s</span></div>
+          </div>
+
+          <div className="mt-2 text-[11px] rounded border border-border/40 bg-surface/30 px-2 py-1.5">
+            Vision SDK Status:{' '}
+            <span className={
+              visionSdkStatus === 'active' ? 'text-emerald-400 font-semibold' :
+              visionSdkStatus === 'backend-offline' || visionSdkStatus === 'permission-denied' ? 'text-crimson font-semibold' :
+              'text-amber-400 font-semibold'
+            }>
+              {visionSdkStatus}
+            </span>
           </div>
           {!cameraEnabled ? (
             <p className="text-[11px] text-text-muted mt-2">

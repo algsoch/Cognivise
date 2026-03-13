@@ -28,6 +28,7 @@ const initialMetrics = {
   backgroundMovement: 0, // restlessness 0–1
   peopleCount: 0,        // number of faces detected in frame
   gazeDirection: 'center', // center | left | right | up | down | away
+  frameHash: '',         // short hash of last analyzed frame (backend)
   // Latency tracking (milliseconds)
   userResponseMs: 0,     // how fast learner responded to last question
   aiResponseMs: 0,       // how fast AI answered learner's input
