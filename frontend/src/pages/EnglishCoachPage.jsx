@@ -11,12 +11,10 @@ import { useSessionStore } from '../hooks/useSessionStore'
 import { useBackendConnection } from '../hooks/useBackendConnection'
 import { useWebcamAnalysis } from '../hooks/useWebcamAnalysis'
 import AgentStatusBar from '../components/AgentStatusBar'
-import AIAgentPanel from '../components/AIAgentPanel'
 import EngagementMeter from '../components/EngagementMeter'
 import CognitiveLoadIndicator from '../components/CognitiveLoadIndicator'
 import AttentionWaveform from '../components/AttentionWaveform'
 import EyeTrackingPanel from '../components/EyeTrackingPanel'
-import InterventionFeed from '../components/InterventionFeed'
 import FaceMonitorOverlay from '../components/FaceMonitorOverlay'
 import MonitoringScopeCard from '../components/MonitoringScopeCard'
 
@@ -264,9 +262,11 @@ export default function EnglishCoachPage() {
   const [speakFeedback, setSpeakFeedback] = useState(true)
   const [showInspector, setShowInspector] = useState(false)
   const [inspectorTick, setInspectorTick] = useState(Date.now())
+  const [eventLog, setEventLog] = useState([])
 
   const recognitionRef = useRef(null)
   const previewRef = useRef(null)
+  const topPreviewRef = useRef(null)
   const bootRef = useRef(false)
   const micRetryRef = useRef(0)
 
@@ -277,12 +277,33 @@ export default function EnglishCoachPage() {
 
   // Reuse existing real-time backend WS + webcam analyzer pipeline
   useBackendConnection()
-  const { cameraStatus, cameraError, processingStatus, previewStream } = useWebcamAnalysis(cameraEnabled)
+  const { cameraStatus, cameraError, processingStatus, previewStream, monitoredFrame } = useWebcamAnalysis(cameraEnabled)
+
+  const pushEvent = useCallback((type, detail) => {
+    const line = `${new Date().toLocaleTimeString('en', { hour12: false })} · ${type} · ${detail}`
+    setEventLog((prev) => [line, ...prev].slice(0, 80))
+  }, [])
 
   useEffect(() => {
     if (!previewRef.current) return
     previewRef.current.srcObject = previewStream || null
   }, [previewStream])
+
+  useEffect(() => {
+    if (!topPreviewRef.current) return
+    topPreviewRef.current.srcObject = previewStream || null
+  }, [previewStream])
+
+  useEffect(() => {
+    if (freshness.frameAt) {
+      pushEvent('frame', `received hash ${metrics.frameHash || 'n/a'}`)
+    }
+  }, [freshness.frameAt, metrics.frameHash, pushEvent])
+
+  useEffect(() => {
+    if (!metrics.faceDetected) return
+    pushEvent('mouth', `open=${Number(metrics.mouthOpenRatio || 0).toFixed(2)} move=${Number(metrics.mouthMovement || 0).toFixed(2)} speaking=${metrics.speakingDetected ? 'yes' : 'no'}`)
+  }, [metrics.mouthOpenRatio, metrics.mouthMovement, metrics.speakingDetected, metrics.faceDetected, pushEvent])
 
   // Bootstrap Vision Agents session (same path as Landing -> Session) so
   // backend EngagementProcessor is definitely initialized for /api/analyze-frame.
@@ -373,6 +394,7 @@ export default function EnglishCoachPage() {
     const visionLive = cameraEnabled && visionBootstrapped && cameraStatus === 'running' && processingStatus === 'processing' && frameAgeMs < 2500
     if (!visionLive) {
       setError('Monitoring not live yet. Enable camera and wait for stable face/frame signals before speaking.')
+      pushEvent('gate', 'blocked speech start: readiness not green')
       return
     }
 
@@ -404,11 +426,13 @@ export default function EnglishCoachPage() {
       if (e.error === 'network' && micRetryRef.current < 2) {
         micRetryRef.current += 1
         setError('Microphone network glitch. Retrying...')
+        pushEvent('mic', `network retry ${micRetryRef.current}`)
         setTimeout(() => {
           try { rec.start() } catch {}
         }, 800)
         return
       }
+      pushEvent('mic', `error ${e.error}`)
       setError(`Microphone error: ${e.error}. Please allow microphone access.`)
       setIsListening(false)
     }
@@ -417,11 +441,13 @@ export default function EnglishCoachPage() {
       setIsListening(false)
       setInterimText('')
       micRetryRef.current = 0
+      pushEvent('mic', 'listening ended')
     }
 
     recognitionRef.current = rec
     rec.start()
-  }, [cameraEnabled, visionBootstrapped, cameraStatus, processingStatus, freshness.frameAt])
+    pushEvent('mic', 'listening started')
+  }, [cameraEnabled, visionBootstrapped, cameraStatus, processingStatus, freshness.frameAt, pushEvent])
 
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop()
@@ -437,6 +463,7 @@ export default function EnglishCoachPage() {
     const visionLive = cameraEnabled && visionBootstrapped && cameraStatus === 'running' && processingStatus === 'processing' && frameAgeMs < 2500
     if (!visionLive) {
       setError('Monitoring pipeline is not live. Enable camera and wait for fresh frame signal before analysis.')
+      pushEvent('gate', 'blocked analyze: readiness not green')
       return
     }
 
@@ -450,6 +477,9 @@ export default function EnglishCoachPage() {
       setLearnerSpeech(text)
       setSignalFreshness('learnerSpeechAt')
       addConversationEntry('user', text)
+      pushEvent('transcript', text)
+      const reqStarted = performance.now()
+      pushEvent('groq', `request start mode=${analysisMode}`)
       const data = await analyzeWithGroq(text, analysisMode, {
         ...(visionReady ? {
           face_detected: metrics.faceDetected,
@@ -471,6 +501,8 @@ export default function EnglishCoachPage() {
         } : {}),
       })
       setResult(data)
+      const reqMs = Math.max(0, Math.round(performance.now() - reqStarted))
+      pushEvent('groq', `response ${reqMs}ms score=${data.score ?? 'n/a'}`)
       const shortOverall = (data.overall_feedback || '').split('.').slice(0, 1).join('.').trim()
       const spokenFeedback = [shortOverall, data.improvement_tip].filter(Boolean).join('. ').trim()
       if (spokenFeedback) {
@@ -495,6 +527,7 @@ export default function EnglishCoachPage() {
       // Auto-generate next sentence if in repeat mode
       if (mode === 'repeat') fetchSentence()
     } catch (err) {
+      pushEvent('groq', `error ${String(err?.message || err)}`)
       setError('Analysis failed. Check your connection and try again.')
     } finally {
       setLoading(false)
@@ -515,6 +548,7 @@ export default function EnglishCoachPage() {
     setSignalFreshness,
     addConversationEntry,
     speakFeedback,
+    pushEvent,
   ])
 
   // Auto-analyze when STT stops and we have a transcript
@@ -540,6 +574,18 @@ export default function EnglishCoachPage() {
     })()
     return { visionLive, micReady, speechSyncScore, frameAgeMs }
   }, [inspectorTick, freshness, cameraEnabled, visionBootstrapped, cameraStatus, processingStatus, metrics.speakingDetected])
+
+  const readiness = useMemo(() => {
+    const frameFresh = Number.isFinite(signalHealth.frameAgeMs) && signalHealth.frameAgeMs < 2500
+    const faceReady = metrics.faceDetected && (metrics.peopleCount || 0) > 0
+    const sdkReady = cameraEnabled && visionBootstrapped && cameraStatus === 'running' && processingStatus === 'processing'
+    const micReady = signalHealth.micReady
+    const score = [frameFresh, faceReady, sdkReady, micReady].filter(Boolean).length
+    const state = score === 4 ? 'green' : score >= 2 ? 'yellow' : 'red'
+    return { state, frameFresh, faceReady, sdkReady, micReady }
+  }, [signalHealth.frameAgeMs, signalHealth.micReady, metrics.faceDetected, metrics.peopleCount, cameraEnabled, visionBootstrapped, cameraStatus, processingStatus])
+
+  const controlsLocked = readiness.state !== 'green'
 
   const visionSdkStatus =
     !cameraEnabled ? 'camera-off' :
@@ -582,6 +628,45 @@ export default function EnglishCoachPage() {
       </motion.header>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
+        <div className={`border rounded-xl px-4 py-3 ${
+          readiness.state === 'green' ? 'border-emerald-500/40 bg-emerald-500/10' :
+          readiness.state === 'yellow' ? 'border-amber-500/40 bg-amber-500/10' :
+          'border-crimson/40 bg-crimson/10'
+        }`}>
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold text-text-primary">Coach Readiness</div>
+            <div className={`text-xs font-mono uppercase ${
+              readiness.state === 'green' ? 'text-emerald-400' : readiness.state === 'yellow' ? 'text-amber-400' : 'text-crimson'
+            }`}>{readiness.state}</div>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-text-secondary">
+            <div>Frame fresh: <span className="font-mono text-text-primary">{readiness.frameFresh ? 'yes' : 'no'}</span></div>
+            <div>Face detected: <span className="font-mono text-text-primary">{readiness.faceReady ? 'yes' : 'no'}</span></div>
+            <div>Vision SDK: <span className="font-mono text-text-primary">{readiness.sdkReady ? 'ready' : 'not-ready'}</span></div>
+            <div>Mic engine: <span className="font-mono text-text-primary">{readiness.micReady ? 'ready' : 'missing'}</span></div>
+          </div>
+          {controlsLocked && (
+            <div className="mt-2 text-xs text-text-secondary">Speak and Analyze are hard-disabled until readiness is green.</div>
+          )}
+        </div>
+
+        <div className="bg-surface/50 border border-border rounded-xl p-3">
+          <div className="text-xs text-text-muted uppercase tracking-wide font-medium mb-2">Live monitored feed (Vision SDK)</div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-lg overflow-hidden border border-border bg-black/40 aspect-video relative">
+              <video ref={topPreviewRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+              <FaceMonitorOverlay videoRef={topPreviewRef} metrics={metrics} />
+            </div>
+            <div className="rounded-lg overflow-hidden border border-border bg-black/40 aspect-video flex items-center justify-center">
+              {monitoredFrame ? (
+                <img src={monitoredFrame} alt="Last analyzed frame" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-xs text-text-muted">No analyzed frame yet</span>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Mode selector */}
         <div className="grid grid-cols-3 gap-2">
           {MODES.map((m) => (
@@ -654,6 +739,18 @@ export default function EnglishCoachPage() {
               Pipeline: Browser camera frame to backend frame analysis to live monitoring state to Groq feedback prompt context.
               If frame freshness is stale or camera is not live, coaching analysis is blocked for quality.
             </div>
+            <div className="border border-border/50 rounded-lg p-2 bg-surface/40">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-text-muted mb-1">Raw event log</div>
+              <div className="max-h-44 overflow-y-auto space-y-1">
+                {eventLog.length === 0 ? (
+                  <div className="text-[11px] text-text-muted">No events yet.</div>
+                ) : (
+                  eventLog.map((line, idx) => (
+                    <div key={idx} className="text-[11px] font-mono text-text-secondary break-words">{line}</div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -683,17 +780,17 @@ export default function EnglishCoachPage() {
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={isListening ? stopListening : startListening}
-            disabled={loading}
+            disabled={loading || controlsLocked}
             className={`w-24 h-24 rounded-full text-4xl font-bold shadow-xl transition-all duration-300 border-4 ${
               isListening
                 ? 'bg-crimson/20 border-crimson text-crimson animate-pulse'
                 : 'bg-emerald-500/20 border-emerald-500/60 text-emerald-400 hover:bg-emerald-500/30 hover:border-emerald-500'
-            } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            } ${(loading || controlsLocked) ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {isListening ? '⏹' : '🎙'}
           </motion.button>
           <p className="text-xs text-text-muted mt-3">
-            {isListening ? 'Listening… tap to stop' : loading ? 'Analyzing…' : 'Tap to speak'}
+            {isListening ? 'Listening… tap to stop' : loading ? 'Analyzing…' : controlsLocked ? 'Waiting for readiness (green)' : 'Tap to speak'}
           </p>
         </div>
 
@@ -829,8 +926,9 @@ export default function EnglishCoachPage() {
           <div className="text-center">
             <button
               onClick={handleAnalyze}
+              disabled={controlsLocked}
               className="text-xs text-text-muted hover:text-emerald-400 border border-border
-                         hover:border-emerald-500/30 px-4 py-1.5 rounded-lg transition-all"
+                         hover:border-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-1.5 rounded-lg transition-all"
             >
               ↻ Re-analyze
             </button>
@@ -855,7 +953,11 @@ export default function EnglishCoachPage() {
 
       {/* Right metrics panel: aligned with other learning modes */}
       <div className="w-[280px] flex-shrink-0 flex flex-col gap-3 p-4 border-l border-border overflow-y-auto">
-        <AIAgentPanel />
+        <div className="glass rounded-xl border border-border p-3">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-text-muted mb-1">Single coach engine</div>
+          <div className="text-sm text-text-primary">Groq Coach + Vision SDK Monitor</div>
+          <div className="text-xs text-text-muted mt-1">One flow: monitoring state directly conditions Groq feedback.</div>
+        </div>
         <MonitoringScopeCard
           title="Coach Monitoring"
           compact={false}
@@ -869,7 +971,6 @@ export default function EnglishCoachPage() {
         <CognitiveLoadIndicator score={metrics.cognitiveLoadScore} />
         <AttentionWaveform />
         <EyeTrackingPanel />
-        <InterventionFeed />
       </div>
       </div>
     </div>

@@ -35,6 +35,8 @@ export function useWebcamAnalysis(enabled = false) {
   const [cameraError, setCameraError] = useState('')
   const [processingStatus, setProcessingStatus] = useState('idle') // idle | processing | backend_offline
   const [previewStream, setPreviewStream] = useState(null)
+  const [monitoredFrame, setMonitoredFrame] = useState('')
+  const framePreviewRef = useRef(0)
 
   const stopCapture = useCallback(() => {
     clearInterval(timerRef.current)
@@ -46,6 +48,7 @@ export function useWebcamAnalysis(enabled = false) {
       streamRef.current = null
     }
     setPreviewStream(null)
+    setMonitoredFrame('')
     setProcessingStatus('idle')
     setCameraStatus('stopped')
     setCameraError('')
@@ -107,6 +110,11 @@ export function useWebcamAnalysis(enabled = false) {
               fpsCountRef.current++  // count successful frame deliveries
               failCountRef.current = 0
               setProcessingStatus('processing')
+              const now = Date.now()
+              if (now - framePreviewRef.current > 500) {
+                framePreviewRef.current = now
+                setMonitoredFrame(b64)
+              }
             } else {
               failCountRef.current += 1
               if (failCountRef.current >= 3) setProcessingStatus('backend_offline')
@@ -134,6 +142,7 @@ export function useWebcamAnalysis(enabled = false) {
           setCameraError(err?.message || 'Could not access camera')
           setProcessingStatus('idle')
           setPreviewStream(null)
+          setMonitoredFrame('')
           updateMetrics({ frameFps: 0 })
           console.warn('[useWebcamAnalysis] webcam access failed:', err?.message)
         }
@@ -147,5 +156,5 @@ export function useWebcamAnalysis(enabled = false) {
     }
   }, [isInSession, enabled, stopCapture])
 
-  return { cameraStatus, cameraError, processingStatus, previewStream }
+  return { cameraStatus, cameraError, processingStatus, previewStream, monitoredFrame }
 }
