@@ -263,6 +263,8 @@ export default function EnglishCoachPage() {
   const [showInspector, setShowInspector] = useState(false)
   const [inspectorTick, setInspectorTick] = useState(Date.now())
   const [eventLog, setEventLog] = useState([])
+  const [readinessOverride, setReadinessOverride] = useState(false)
+  const [topicPrompt, setTopicPrompt] = useState('')
 
   const recognitionRef = useRef(null)
   const previewRef = useRef(null)
@@ -392,7 +394,7 @@ export default function EnglishCoachPage() {
 
     const frameAgeMs = freshness.frameAt ? Date.now() - freshness.frameAt : Infinity
     const visionLive = cameraEnabled && visionBootstrapped && cameraStatus === 'running' && processingStatus === 'processing' && frameAgeMs < 2500
-    if (!visionLive) {
+    if (!visionLive && !readinessOverride) {
       setError('Monitoring not live yet. Enable camera and wait for stable face/frame signals before speaking.')
       pushEvent('gate', 'blocked speech start: readiness not green')
       return
@@ -447,7 +449,7 @@ export default function EnglishCoachPage() {
     recognitionRef.current = rec
     rec.start()
     pushEvent('mic', 'listening started')
-  }, [cameraEnabled, visionBootstrapped, cameraStatus, processingStatus, freshness.frameAt, pushEvent])
+  }, [cameraEnabled, visionBootstrapped, cameraStatus, processingStatus, freshness.frameAt, readinessOverride, pushEvent])
 
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop()
@@ -461,7 +463,7 @@ export default function EnglishCoachPage() {
 
     const frameAgeMs = freshness.frameAt ? Date.now() - freshness.frameAt : Infinity
     const visionLive = cameraEnabled && visionBootstrapped && cameraStatus === 'running' && processingStatus === 'processing' && frameAgeMs < 2500
-    if (!visionLive) {
+    if (!visionLive && !readinessOverride) {
       setError('Monitoring pipeline is not live. Enable camera and wait for fresh frame signal before analysis.')
       pushEvent('gate', 'blocked analyze: readiness not green')
       return
@@ -480,7 +482,10 @@ export default function EnglishCoachPage() {
       pushEvent('transcript', text)
       const reqStarted = performance.now()
       pushEvent('groq', `request start mode=${analysisMode}`)
-      const data = await analyzeWithGroq(text, analysisMode, {
+      const modeText = analysisMode === 'topic' && topicPrompt.trim()
+        ? `Topic: ${topicPrompt.trim()}. Learner response: ${text}`
+        : text
+      const data = await analyzeWithGroq(modeText, analysisMode, {
         ...(visionReady ? {
           face_detected: metrics.faceDetected,
           gaze_on_screen: metrics.gazeOnScreen,
@@ -541,6 +546,8 @@ export default function EnglishCoachPage() {
     cameraStatus,
     processingStatus,
     freshness.frameAt,
+    readinessOverride,
+    topicPrompt,
     metrics,
     setLearnerSpeech,
     setAgentSpeech,
@@ -646,20 +653,48 @@ export default function EnglishCoachPage() {
             <div>Mic engine: <span className="font-mono text-text-primary">{readiness.micReady ? 'ready' : 'missing'}</span></div>
           </div>
           {controlsLocked && (
-            <div className="mt-2 text-xs text-text-secondary">Speak and Analyze are hard-disabled until readiness is green.</div>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <span className="text-xs text-text-secondary">Speak and Analyze are hard-disabled until readiness is green.</span>
+              <button
+                onClick={() => setReadinessOverride((v) => !v)}
+                className={`text-xs px-2 py-1 rounded border ${
+                  readinessOverride
+                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                    : 'border-border text-text-muted hover:border-amber-500/30'
+                }`}
+              >
+                {readinessOverride ? 'Override on' : 'Audio-only override'}
+              </button>
+            </div>
+          )}
+          {readinessOverride && (
+            <div className="mt-2 text-[11px] text-amber-300">Override active: user-controlled start enabled even when vision checks are not fully green.</div>
           )}
         </div>
 
         <div className="bg-surface/50 border border-border rounded-xl p-3">
-          <div className="text-xs text-text-muted uppercase tracking-wide font-medium mb-2">Live monitored feed (Vision SDK)</div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs text-text-muted uppercase tracking-wide font-medium">Live monitored feed (Vision SDK)</div>
+            <button
+              onClick={() => setCameraEnabled((v) => !v)}
+              className={`text-[11px] px-2 py-1 rounded border transition-all ${
+                cameraEnabled
+                  ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10'
+                  : 'border-border text-text-muted hover:border-emerald-500/30 hover:text-emerald-400'
+              }`}
+            >
+              {cameraEnabled ? 'Disable Camera' : 'Enable Camera'}
+            </button>
+          </div>
+          <div className="text-[11px] text-text-muted mb-2">Frame-by-frame analysis at ~{metrics.frameFps || 0} fps. Left: live camera with overlay. Right: last analyzed frame sent to backend.</div>
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-lg overflow-hidden border border-border bg-black/40 aspect-video relative">
-              <video ref={topPreviewRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+              <video ref={topPreviewRef} autoPlay muted playsInline className="w-full h-full object-contain bg-black" />
               <FaceMonitorOverlay videoRef={topPreviewRef} metrics={metrics} />
             </div>
             <div className="rounded-lg overflow-hidden border border-border bg-black/40 aspect-video flex items-center justify-center">
               {monitoredFrame ? (
-                <img src={monitoredFrame} alt="Last analyzed frame" className="w-full h-full object-cover" />
+                <img src={monitoredFrame} alt="Last analyzed frame" className="w-full h-full object-contain bg-black" />
               ) : (
                 <span className="text-xs text-text-muted">No analyzed frame yet</span>
               )}
@@ -739,6 +774,13 @@ export default function EnglishCoachPage() {
               Pipeline: Browser camera frame to backend frame analysis to live monitoring state to Groq feedback prompt context.
               If frame freshness is stale or camera is not live, coaching analysis is blocked for quality.
             </div>
+            <div className="rounded-lg overflow-hidden border border-border bg-black/40 aspect-video flex items-center justify-center">
+              {monitoredFrame ? (
+                <img src={monitoredFrame} alt="Inspector analyzed frame" className="w-full h-full object-contain bg-black" />
+              ) : (
+                <span className="text-xs text-text-muted">No analyzed frame in inspector yet</span>
+              )}
+            </div>
             <div className="border border-border/50 rounded-lg p-2 bg-surface/40">
               <div className="text-[10px] font-mono uppercase tracking-widest text-text-muted mb-1">Raw event log</div>
               <div className="max-h-44 overflow-y-auto space-y-1">
@@ -774,6 +816,33 @@ export default function EnglishCoachPage() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {mode === 'repeat' && (
+          <div className="bg-surface/50 border border-border rounded-xl p-3">
+            <div className="text-xs text-text-muted uppercase tracking-wide mb-2">Your reading text (editable)</div>
+            <textarea
+              value={targetSentence}
+              onChange={(e) => setTargetSentence(e.target.value)}
+              rows={4}
+              className="w-full bg-surface/60 border border-border/40 rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-pulse/50"
+              placeholder="Type or paste your own text to read..."
+            />
+          </div>
+        )}
+
+        {mode === 'topic' && (
+          <div className="bg-surface/50 border border-border rounded-xl p-3">
+            <div className="text-xs text-text-muted uppercase tracking-wide mb-2">Topic setup</div>
+            <input
+              type="text"
+              value={topicPrompt}
+              onChange={(e) => setTopicPrompt(e.target.value)}
+              placeholder="Enter topic (e.g., climate change, startup pitch, machine learning)"
+              className="w-full bg-surface/60 border border-border/40 rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-pulse/50"
+            />
+            <p className="text-[11px] text-text-muted mt-2">In Topic Chat, your topic is injected into Groq analysis so feedback stays on your selected subject.</p>
+          </div>
+        )}
 
         {/* Microphone area */}
         <div className="text-center py-6">
@@ -817,7 +886,7 @@ export default function EnglishCoachPage() {
                 autoPlay
                 muted
                 playsInline
-                className="w-full h-full object-cover"
+                className="w-full h-full object-contain bg-black"
               />
               <FaceMonitorOverlay videoRef={previewRef} metrics={metrics} />
             </div>
@@ -963,6 +1032,7 @@ export default function EnglishCoachPage() {
           compact={false}
           onOpenInspector={() => setShowInspector(true)}
           engineLabel="groq"
+          monitoredFrame={monitoredFrame}
         />
         <div className="grid grid-cols-2 gap-2">
           <EngagementMeter score={metrics.engagementScore} label="Engagement" compact />

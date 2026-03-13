@@ -23,6 +23,7 @@ export default function MonitoringScopeCard({
   compact = false,
   onOpenInspector = null,
   engineLabel = 'groq',
+  monitoredFrame = '',
 }) {
   const metrics = useSessionStore((s) => s.metrics)
   const freshness = useSessionStore((s) => s.signalFreshness)
@@ -101,6 +102,12 @@ export default function MonitoringScopeCard({
 
       {!compact && (
         <>
+          {monitoredFrame && (
+            <div className="mb-2 rounded-lg overflow-hidden border border-border bg-black/40 aspect-video flex items-center justify-center">
+              <img src={monitoredFrame} alt="Monitored frame" className="w-full h-full object-contain bg-black" />
+            </div>
+          )}
+
           <div className="text-[10px] text-text-muted uppercase tracking-wide mb-1">You said</div>
           <div className="text-[11px] text-text-primary bg-aurora/10 border border-aurora/20 rounded px-2 py-1.5 mb-2 line-clamp-2">
             {userSpoken || 'No recent speech captured yet'}
