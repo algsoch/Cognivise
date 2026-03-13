@@ -370,6 +370,7 @@ async def join_call(
 
                         # Re-read topic + learner name in case they were posted via /api/session/config
                         _live_topic = session.current_topic
+                        _cfg = {}
                         try:
                             from backend.app.api.server import get_pending_session_config
                             _cfg = get_pending_session_config()
@@ -394,48 +395,41 @@ async def join_call(
                         if _is_generic_label(_live_topic):
                             _live_topic = None
 
-                        # Personal greeting: use learner's real name if available
+                        # Personal greeting context
                         _learner_name = session.user_name or None
-                        _name_part = f" {_learner_name}!" if _learner_name else "!"
 
                         # Determine session mode (ai_chat = direct teach, others = video tutoring)
                         _content_type = _cfg.get('content_type', 'youtube') or 'youtube'
                         _is_teach_mode = _content_type in ('ai_chat',)
 
-                        # Greeting: send an INSTRUCTION to Gemini so it generates
-                        # its own spoken greeting. send_client_content guarantees
-                        # a model reply even when the learner hasn't spoken yet.
-                        # Gemini prompt uses phonetic "Alagsoch"; display remains "Algsoch".
+                        # Ask Gemini to generate a greeting naturally. Do not pre-broadcast a
+                        # fixed string; the UI should reflect exactly what the model actually says.
                         if _is_teach_mode and _live_topic:
                             _greeting_prompt = (
                                 f"A learner named {_learner_name or 'the student'} wants you to teach them '{_live_topic}'. "
                                 f"Greet them by first name. Introduce yourself as Alagsoch, their personal AI tutor. "
-                                f"Tell them you'll teach {_live_topic} — ask what they already know. 2 sentences max."
+                                f"Ask what they already know. Keep it under 2 sentences and avoid canned phrasing."
                             )
-                            _greet_speech = f"Hey{_name_part} I'm Algsoch, your personal AI tutor! Let's master {_live_topic} — tell me what you already know!"
                         elif _is_teach_mode:
                             _greeting_prompt = (
                                 f"A learner named {_learner_name or 'the student'} wants tutoring. "
                                 f"Greet them by name. Introduce yourself as Alagsoch, personal AI tutor. "
-                                f"Ask what subject they want to learn today. 2 sentences max."
+                                f"Ask what subject they want to learn today. Keep it under 2 sentences and avoid canned phrasing."
                             )
-                            _greet_speech = f"Hey{_name_part} I'm Algsoch, your AI tutor! What topic do you want to master today?"
                         elif _live_topic:
                             _greeting_prompt = (
                                 f"A learner named {_learner_name or 'the student'} just started a study session. "
                                 f"Greet them by name warmly. Introduce yourself as Alagsoch, their AI learning tutor. "
-                                f"Tell them you can see they're studying '{_live_topic}' and you'll ask questions "
-                                f"to help them understand it deeper. Keep it under 2 sentences."
+                                f"Mention they are studying '{_live_topic}' and ask one sharp starter question. "
+                                f"Keep it under 2 sentences and avoid canned phrasing."
                             )
-                            _greet_speech = f"Hey{_name_part} I'm Algsoch, your AI tutor! I can see you're studying {_live_topic}. Let's dive in — I'll challenge you!"
                         else:
                             _greeting_prompt = (
                                 f"A learner named {_learner_name or 'the student'} just joined your tutoring session. "
                                 f"Greet them by name warmly. Introduce yourself as Alagsoch, their AI learning tutor. "
-                                f"Ask what topic or video they're studying today. Keep it under 2 sentences."
+                                f"Ask what topic or video they're studying today. Keep it under 2 sentences and avoid canned phrasing."
                             )
-                            _greet_speech = f"Hey{_name_part} I'm Algsoch, your AI tutor! What are we learning today?"
-                        MetricsBroadcaster.instance().push({"agent_speech": _greet_speech, "agent_action": "greeting"})
+                        MetricsBroadcaster.instance().push({"agent_action": "greeting"})
                         # Reset cooldown from greeting time — first question will fire ~25s after greeting
                         session.last_intervention_at = time.time()
                         logger.info("🎙️  Sending greeting prompt (topic=%s)", _live_topic or 'none')

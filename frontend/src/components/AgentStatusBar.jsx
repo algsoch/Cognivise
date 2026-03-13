@@ -2,7 +2,7 @@
  * AgentStatusBar — top bar showing agent connection + session info.
  */
 
-import { motion } from 'framer-motion'
+import React from 'react'
 import { useSessionStore } from '../hooks/useSessionStore'
 import LearnerStateTag from './LearnerStateTag'
 
@@ -32,8 +32,6 @@ function ElapsedTime({ startedAt }) {
   const s = String(secs % 60).padStart(2, '0')
   return <span className="font-mono text-text-muted text-xs">{m}:{s}</span>
 }
-
-import React from 'react'
 
 export default function AgentStatusBar() {
   const { agentStatus, topic, sessionStartedAt, isInSession } = useSessionStore()

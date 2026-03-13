@@ -21,6 +21,7 @@ import FaceMonitorOverlay from '../components/FaceMonitorOverlay'
 import AIAgentPanel from '../components/AIAgentPanel'
 import EyeTrackingPanel from '../components/EyeTrackingPanel'
 import LatencyGraph from '../components/LatencyGraph'
+import MonitoringScopeCard from '../components/MonitoringScopeCard'
 import { useBackendConnection } from '../hooks/useBackendConnection'
 import { useStreamAudio } from '../hooks/useStreamAudio'
 import { useWebcamAnalysis } from '../hooks/useWebcamAnalysis'
@@ -903,6 +904,7 @@ export default function SessionPage() {
         <div className="w-[280px] flex-shrink-0 flex flex-col gap-3 p-4 border-l
                         border-border overflow-y-auto">
           <AIAgentPanel />
+          <MonitoringScopeCard title="Live Monitoring" compact />
           {/* Engagement + Attention side by side */}
           <div className="grid grid-cols-2 gap-2">
             <EngagementMeter score={metrics.engagementScore} label="Engagement" compact />

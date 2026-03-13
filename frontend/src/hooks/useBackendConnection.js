@@ -176,8 +176,14 @@ export function useBackendConnection() {
             addConversationEntry('ai', raw.agent_speech, raw.agent_action ?? null)
           }
 
-          // Agent transcript: Gemini's actual spoken text (for display, no TTS to avoid duplicate)
-          if (raw.agent_transcript) setAgentTranscript(raw.agent_transcript)
+          // Agent transcript: Gemini's actual spoken text. Mirror it into agentSpeech
+          // when no explicit agent_speech event is present so UI reflects real output.
+          if (raw.agent_transcript) {
+            setAgentTranscript(raw.agent_transcript)
+            if (!raw.agent_speech) {
+              setAgentSpeech(raw.agent_transcript)
+            }
+          }
 
           // Agent action: what type of intervention just fired (for activity panel)
           if (raw.agent_action) {

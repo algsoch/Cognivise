@@ -18,6 +18,7 @@ import AttentionWaveform from '../components/AttentionWaveform'
 import EyeTrackingPanel from '../components/EyeTrackingPanel'
 import InterventionFeed from '../components/InterventionFeed'
 import FaceMonitorOverlay from '../components/FaceMonitorOverlay'
+import MonitoringScopeCard from '../components/MonitoringScopeCard'
 
 const API_BASE = `${window.location.protocol}//${window.location.hostname}:8001`
 
@@ -236,6 +237,13 @@ export default function EnglishCoachPage() {
   const navigate = useNavigate()
   const setUser = useSessionStore((s) => s.setUser)
   const startSession = useSessionStore((s) => s.startSession)
+  const endSession = useSessionStore((s) => s.endSession)
+  const setTopic = useSessionStore((s) => s.setTopic)
+  const setContentSource = useSessionStore((s) => s.setContentSource)
+  const setLearnerSpeech = useSessionStore((s) => s.setLearnerSpeech)
+  const setAgentSpeech = useSessionStore((s) => s.setAgentSpeech)
+  const setAgentTranscript = useSessionStore((s) => s.setAgentTranscript)
+  const addConversationEntry = useSessionStore((s) => s.addConversationEntry)
   const metrics = useSessionStore((s) => s.metrics)
   const [cameraEnabled, setCameraEnabled] = useState(false)
   const [visionBootstrapped, setVisionBootstrapped] = useState(false)
@@ -251,6 +259,7 @@ export default function EnglishCoachPage() {
   const [targetSentence, setTargetSentence] = useState('')
   const [history, setHistory]         = useState([]) // local session history
   const [sessionScore, setSessionScore] = useState([])
+  const [speakFeedback, setSpeakFeedback] = useState(true)
 
   const recognitionRef = useRef(null)
   const previewRef = useRef(null)
@@ -318,6 +327,15 @@ export default function EnglishCoachPage() {
     if (!cameraEnabled) return
     bootstrapVisionSession()
   }, [cameraEnabled, bootstrapVisionSession])
+
+  useEffect(() => {
+    return () => {
+      window.speechSynthesis?.cancel()
+      setContentSource(null)
+      setTopic('')
+      endSession()
+    }
+  }, [endSession, setContentSource, setTopic])
 
   // ── Generate target sentence for "Read & Repeat" mode ─────────────────
   const fetchSentence = useCallback(async () => {
@@ -395,6 +413,8 @@ export default function EnglishCoachPage() {
     try {
       const analysisMode = mode === 'repeat' ? 'repeat' : mode === 'topic' ? 'topic' : 'analyze'
       const visionReady = cameraEnabled && cameraStatus === 'running' && processingStatus === 'processing' && (metrics.frameFps || 0) > 0
+      setLearnerSpeech(text)
+      addConversationEntry('user', text)
       const data = await analyzeWithGroq(text, analysisMode, {
         ...(visionReady ? {
           face_detected: metrics.faceDetected,
@@ -411,6 +431,19 @@ export default function EnglishCoachPage() {
         } : {}),
       })
       setResult(data)
+      const spokenFeedback = [data.overall_feedback, data.improvement_tip].filter(Boolean).join(' ')
+      if (spokenFeedback) {
+        setAgentTranscript(spokenFeedback)
+        setAgentSpeech(spokenFeedback)
+        addConversationEntry('ai', spokenFeedback, 'english_feedback')
+        if (speakFeedback && window.speechSynthesis) {
+          window.speechSynthesis.cancel()
+          const u = new SpeechSynthesisUtterance(spokenFeedback.replace(/Algsoch/g, 'Alagsoch'))
+          u.rate = 1.0
+          u.pitch = 1.0
+          window.speechSynthesis.speak(u)
+        }
+      }
       setSessionScore((prev) => [...prev, data.score ?? 70])
       setHistory((prev) => [{ transcript: text, result: data, ts: Date.now() }, ...prev].slice(0, 20))
 
@@ -421,7 +454,20 @@ export default function EnglishCoachPage() {
     } finally {
       setLoading(false)
     }
-  }, [transcript, mode, fetchSentence, cameraEnabled, cameraStatus, processingStatus, metrics])
+  }, [
+    transcript,
+    mode,
+    fetchSentence,
+    cameraEnabled,
+    cameraStatus,
+    processingStatus,
+    metrics,
+    setLearnerSpeech,
+    setAgentSpeech,
+    setAgentTranscript,
+    addConversationEntry,
+    speakFeedback,
+  ])
 
   // Auto-analyze when STT stops and we have a transcript
   useEffect(() => {
@@ -493,7 +539,7 @@ export default function EnglishCoachPage() {
         </div>
 
         {/* Level */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-text-muted">Level:</span>
           {LEVELS.map((l) => (
             <button
@@ -508,6 +554,16 @@ export default function EnglishCoachPage() {
               {l}
             </button>
           ))}
+          <button
+            onClick={() => setSpeakFeedback((v) => !v)}
+            className={`text-xs px-3 py-1 rounded-full border transition-all ${
+              speakFeedback
+                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                : 'border-border text-text-muted hover:border-emerald-500/30'
+            }`}
+          >
+            {speakFeedback ? 'AI voice on' : 'AI voice off'}
+          </button>
         </div>
 
         {/* Target sentence (repeat mode) */}
@@ -709,6 +765,7 @@ export default function EnglishCoachPage() {
       {/* Right metrics panel: aligned with other learning modes */}
       <div className="w-[280px] flex-shrink-0 flex flex-col gap-3 p-4 border-l border-border overflow-y-auto">
         <AIAgentPanel />
+        <MonitoringScopeCard title="Coach Monitoring" compact={false} />
         <div className="grid grid-cols-2 gap-2">
           <EngagementMeter score={metrics.engagementScore} label="Engagement" compact />
           <EngagementMeter score={metrics.attentionScore} label="Attention" compact />
