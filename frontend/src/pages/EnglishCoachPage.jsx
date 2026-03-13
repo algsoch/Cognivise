@@ -245,6 +245,8 @@ export default function EnglishCoachPage() {
   const setSignalFreshness = useSessionStore((s) => s.setSignalFreshness)
   const metrics = useSessionStore((s) => s.metrics)
   const freshness = useSessionStore((s) => s.signalFreshness)
+  const learnerSpeechLive = useSessionStore((s) => s.learnerSpeech)
+  const agentSpeechLive = useSessionStore((s) => s.agentTranscript || s.agentSpeech)
   const [cameraEnabled, setCameraEnabled] = useState(false)
   const [visionBootstrapped, setVisionBootstrapped] = useState(false)
   const [visionBootError, setVisionBootError] = useState('')
@@ -788,7 +790,7 @@ export default function EnglishCoachPage() {
               Raw frame only
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             <div className="rounded-lg overflow-hidden border border-border bg-black/40 aspect-video relative">
               <video
                 ref={topPreviewRef}
@@ -799,87 +801,112 @@ export default function EnglishCoachPage() {
               />
               {visualMode !== 'raw' && <FaceMonitorOverlay videoRef={topPreviewRef} metrics={metrics} />}
             </div>
-            <div className="rounded-lg overflow-hidden border border-border bg-black/40 aspect-video flex items-center justify-center">
-              {monitoredFrame ? (
-                <img src={monitoredFrame} alt="Last analyzed frame" className="w-full h-full object-contain bg-black" />
-              ) : (
-                <span className="text-xs text-text-muted">No analyzed frame yet</span>
-              )}
+
+            <div className="space-y-3">
+              <div className="text-xs text-text-muted uppercase tracking-wide">Practice controls</div>
+
+              <div className="grid grid-cols-3 gap-2">
+                {MODES.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => { setMode(m.id); setResult(null); setTranscript('') }}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      mode === m.id
+                        ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
+                        : 'border-border bg-surface/30 text-text-secondary hover:border-emerald-500/30'
+                    }`}
+                  >
+                    <div className="text-lg mb-1">{m.icon}</div>
+                    <div className="text-[11px] font-semibold leading-tight">{m.label}</div>
+                    <div className="text-[10px] text-text-muted mt-1 leading-tight">{m.hint}</div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-text-muted">Level:</span>
+                {LEVELS.map((l) => (
+                  <button
+                    key={l}
+                    onClick={() => setLevel(l)}
+                    className={`text-xs px-3 py-1 rounded-full border transition-all capitalize ${
+                      level === l
+                        ? 'border-pulse/50 bg-pulse/10 text-pulse'
+                        : 'border-border text-text-muted hover:border-pulse/30'
+                    }`}
+                  >
+                    {l}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setSpeakFeedback((v) => !v)}
+                  className={`text-xs px-3 py-1 rounded-full border transition-all ${
+                    speakFeedback
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                      : 'border-border text-text-muted hover:border-emerald-500/30'
+                  }`}
+                >
+                  {speakFeedback ? 'AI voice on' : 'AI voice off'}
+                </button>
+                <button
+                  onClick={toggleMicrophone}
+                  className={`text-xs px-3 py-1 rounded-full border transition-all ${
+                    micEnabled
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                      : 'border-border text-text-muted hover:border-emerald-500/30'
+                  }`}
+                >
+                  {micEnabled ? 'Disable Microphone' : 'Enable Microphone'}
+                </button>
+                <button
+                  onClick={() => speakText(lastFeedbackSpeech || 'Voice test. I am your English coach.')}
+                  className="text-xs px-3 py-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                >
+                  Speak now
+                </button>
+                <button
+                  onClick={() => setShowInspector((v) => !v)}
+                  className={`text-xs px-3 py-1 rounded-full border transition-all ${
+                    showInspector
+                      ? 'border-pulse/50 bg-pulse/10 text-pulse'
+                      : 'border-border text-text-muted hover:border-pulse/30'
+                  }`}
+                >
+                  {showInspector ? 'Hide Inspector' : 'Monitoring Inspector'}
+                </button>
+              </div>
+
+              <div className="rounded-lg overflow-hidden border border-border bg-black/40 aspect-video flex items-center justify-center">
+                {monitoredFrame ? (
+                  <img src={monitoredFrame} alt="Last analyzed frame" className="w-full h-full object-contain bg-black" />
+                ) : (
+                  <span className="text-xs text-text-muted">No analyzed frame yet</span>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Mode selector */}
-        <div className="grid grid-cols-3 gap-2">
-          {MODES.map((m) => (
-            <button
-              key={m.id}
-              onClick={() => { setMode(m.id); setResult(null); setTranscript('') }}
-              className={`p-3 rounded-xl border text-left transition-all ${
-                mode === m.id
-                  ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400'
-                  : 'border-border bg-surface/30 text-text-secondary hover:border-emerald-500/30'
-              }`}
-            >
-              <div className="text-xl mb-1">{m.icon}</div>
-              <div className="text-xs font-semibold">{m.label}</div>
-              <div className="text-xs text-text-muted mt-0.5 leading-tight">{m.hint}</div>
-            </button>
-          ))}
-        </div>
-
-        {/* Level */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-text-muted">Level:</span>
-          {LEVELS.map((l) => (
-            <button
-              key={l}
-              onClick={() => setLevel(l)}
-              className={`text-xs px-3 py-1 rounded-full border transition-all capitalize ${
-                level === l
-                  ? 'border-pulse/50 bg-pulse/10 text-pulse'
-                  : 'border-border text-text-muted hover:border-pulse/30'
-              }`}
-            >
-              {l}
-            </button>
-          ))}
-          <button
-            onClick={() => setSpeakFeedback((v) => !v)}
-            className={`text-xs px-3 py-1 rounded-full border transition-all ${
-              speakFeedback
-                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
-                : 'border-border text-text-muted hover:border-emerald-500/30'
-            }`}
-          >
-            {speakFeedback ? 'AI voice on' : 'AI voice off'}
-          </button>
-          <button
-            onClick={toggleMicrophone}
-            className={`text-xs px-3 py-1 rounded-full border transition-all ${
-              micEnabled
-                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
-                : 'border-border text-text-muted hover:border-emerald-500/30'
-            }`}
-          >
-            {micEnabled ? 'Disable Microphone' : 'Enable Microphone'}
-          </button>
-          <button
-            onClick={() => speakText(lastFeedbackSpeech || 'Voice test. I am your English coach.')}
-            className="text-xs px-3 py-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
-          >
-            Speak now
-          </button>
-          <button
-            onClick={() => setShowInspector((v) => !v)}
-            className={`text-xs px-3 py-1 rounded-full border transition-all ${
-              showInspector
-                ? 'border-pulse/50 bg-pulse/10 text-pulse'
-                : 'border-border text-text-muted hover:border-pulse/30'
-            }`}
-          >
-            {showInspector ? 'Hide Inspector' : 'Monitoring Inspector'}
-          </button>
+        <div className="bg-surface/50 border border-border rounded-xl p-3">
+          <div className="text-xs text-text-muted uppercase tracking-wide font-medium mb-2">AI communication flow</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+            <div className="bg-muted/30 rounded px-2 py-1.5">
+              <div className="text-text-muted mb-1">What AI monitors</div>
+              <div className="text-text-primary">Face {metrics.faceDetected ? 'detected' : 'not detected'} · Gaze {metrics.gazeDirection || 'n/a'} · FPS {metrics.frameFps || 0} · Mouth {Number(metrics.mouthOpenRatio || 0).toFixed(2)}</div>
+            </div>
+            <div className="bg-muted/30 rounded px-2 py-1.5">
+              <div className="text-text-muted mb-1">What AI speaks</div>
+              <div className="text-text-primary line-clamp-3">{agentSpeechLive || 'No AI speech yet'}</div>
+            </div>
+            <div className="bg-muted/30 rounded px-2 py-1.5">
+              <div className="text-text-muted mb-1">What user said</div>
+              <div className="text-text-primary line-clamp-3">{learnerSpeechLive || 'No user speech yet'}</div>
+            </div>
+            <div className="bg-muted/30 rounded px-2 py-1.5">
+              <div className="text-text-muted mb-1">Groq + monitoring communication</div>
+              <div className="text-text-primary">Transcript + frame metrics are combined into one request; Groq returns coaching feedback used for voice + UI response.</div>
+            </div>
+          </div>
         </div>
 
         {showInspector && (
