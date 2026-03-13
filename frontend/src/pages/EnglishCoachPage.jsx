@@ -270,12 +270,15 @@ export default function EnglishCoachPage() {
   const [frameCursor, setFrameCursor] = useState(0)
   const [lastFeedbackSpeech, setLastFeedbackSpeech] = useState('')
   const [speechVoice, setSpeechVoice] = useState(null)
+  const [micEnabled, setMicEnabled] = useState(false)
+  const [micStatus, setMicStatus] = useState('idle') // idle | requesting | enabled | denied | error
 
   const recognitionRef = useRef(null)
   const previewRef = useRef(null)
   const topPreviewRef = useRef(null)
   const bootRef = useRef(false)
   const micRetryRef = useRef(0)
+  const micStreamRef = useRef(null)
 
   useEffect(() => {
     const t = setInterval(() => setInspectorTick(Date.now()), 1000)
@@ -418,6 +421,12 @@ export default function EnglishCoachPage() {
       return
     }
 
+    if (!micEnabled) {
+      setError('Microphone is disabled. Click Enable Microphone first.')
+      pushEvent('gate', 'blocked speech start: microphone disabled')
+      return
+    }
+
     const frameAgeMs = freshness.frameAt ? Date.now() - freshness.frameAt : Infinity
     const visionLive = cameraEnabled && visionBootstrapped && cameraStatus === 'running' && processingStatus === 'processing' && frameAgeMs < 2500
     if (!visionLive && !readinessOverride) {
@@ -451,6 +460,13 @@ export default function EnglishCoachPage() {
     }
 
     rec.onerror = (e) => {
+      if (e.error === 'no-speech') {
+        setError('No speech detected. Speak louder and keep talking for 1-2 seconds.')
+        pushEvent('mic', 'no-speech detected')
+        setIsListening(false)
+        return
+      }
+
       if (e.error === 'network' && micRetryRef.current < 2) {
         micRetryRef.current += 1
         setError('Microphone network glitch. Retrying...')
@@ -461,7 +477,7 @@ export default function EnglishCoachPage() {
         return
       }
       pushEvent('mic', `error ${e.error}`)
-      setError(`Microphone error: ${e.error}. Please allow microphone access.`)
+      setError(`Microphone error: ${e.error}.`)
       setIsListening(false)
     }
 
@@ -475,12 +491,38 @@ export default function EnglishCoachPage() {
     recognitionRef.current = rec
     rec.start()
     pushEvent('mic', 'listening started')
-  }, [cameraEnabled, visionBootstrapped, cameraStatus, processingStatus, freshness.frameAt, readinessOverride, pushEvent])
+  }, [cameraEnabled, visionBootstrapped, cameraStatus, processingStatus, freshness.frameAt, readinessOverride, micEnabled, pushEvent])
 
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop()
     setIsListening(false)
   }, [])
+
+  const toggleMicrophone = useCallback(async () => {
+    if (micEnabled) {
+      micStreamRef.current?.getTracks()?.forEach((t) => t.stop())
+      micStreamRef.current = null
+      setMicEnabled(false)
+      setMicStatus('idle')
+      pushEvent('mic', 'disabled')
+      return
+    }
+
+    try {
+      setMicStatus('requesting')
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      micStreamRef.current = stream
+      setMicEnabled(true)
+      setMicStatus('enabled')
+      pushEvent('mic', 'enabled')
+    } catch (e) {
+      const denied = e?.name === 'NotAllowedError' || e?.name === 'PermissionDeniedError'
+      setMicEnabled(false)
+      setMicStatus(denied ? 'denied' : 'error')
+      setError(denied ? 'Microphone permission denied. Please enable microphone access in your browser.' : `Microphone setup failed: ${e?.message || 'unknown error'}`)
+      pushEvent('mic', `enable failed: ${String(e?.message || e)}`)
+    }
+  }, [micEnabled, pushEvent])
 
   const speakText = useCallback((text) => {
     const spoken = (text || '').trim()
@@ -624,11 +666,11 @@ export default function EnglishCoachPage() {
     const frameFresh = Number.isFinite(signalHealth.frameAgeMs) && signalHealth.frameAgeMs < 2500
     const faceReady = metrics.faceDetected && (metrics.peopleCount || 0) > 0
     const sdkReady = cameraEnabled && visionBootstrapped && cameraStatus === 'running' && processingStatus === 'processing'
-    const micReady = signalHealth.micReady
+    const micReady = signalHealth.micReady && micEnabled
     const score = [frameFresh, faceReady, sdkReady, micReady].filter(Boolean).length
     const state = score === 4 ? 'green' : score >= 2 ? 'yellow' : 'red'
     return { state, frameFresh, faceReady, sdkReady, micReady }
-  }, [signalHealth.frameAgeMs, signalHealth.micReady, metrics.faceDetected, metrics.peopleCount, cameraEnabled, visionBootstrapped, cameraStatus, processingStatus])
+  }, [signalHealth.frameAgeMs, signalHealth.micReady, metrics.faceDetected, metrics.peopleCount, cameraEnabled, visionBootstrapped, cameraStatus, processingStatus, micEnabled])
 
   const controlsLocked = readiness.state !== 'green'
 
@@ -725,6 +767,7 @@ export default function EnglishCoachPage() {
             </button>
           </div>
           <div className="text-[11px] text-text-muted mb-2">Frame-by-frame analysis at ~{metrics.frameFps || 0} fps. Left: live camera with overlay. Right: last analyzed frame sent to backend.</div>
+          <div className="text-[11px] text-text-muted mb-2">Microphone status: <span className="font-mono text-text-primary">{micStatus}</span></div>
           <div className="flex items-center gap-2 mb-2">
             <button
               onClick={() => setVisualMode('composite')}
@@ -810,6 +853,16 @@ export default function EnglishCoachPage() {
             }`}
           >
             {speakFeedback ? 'AI voice on' : 'AI voice off'}
+          </button>
+          <button
+            onClick={toggleMicrophone}
+            className={`text-xs px-3 py-1 rounded-full border transition-all ${
+              micEnabled
+                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                : 'border-border text-text-muted hover:border-emerald-500/30'
+            }`}
+          >
+            {micEnabled ? 'Disable Microphone' : 'Enable Microphone'}
           </button>
           <button
             onClick={() => speakText(lastFeedbackSpeech || 'Voice test. I am your English coach.')}
