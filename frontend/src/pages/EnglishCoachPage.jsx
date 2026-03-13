@@ -11,9 +11,11 @@ import { useSessionStore } from '../hooks/useSessionStore'
 import { useBackendConnection } from '../hooks/useBackendConnection'
 import { useWebcamAnalysis } from '../hooks/useWebcamAnalysis'
 
+const API_BASE = `${window.location.protocol}//${window.location.hostname}:8001`
+
 // ── Groq API call ─────────────────────────────────────────────────────────────
 async function analyzeWithGroq(transcript, mode = 'analyze', faceMetrics = null) {
-  const res = await fetch('/api/english-coach', {
+  const res = await fetch(`${API_BASE}/api/english-coach`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ transcript, mode, face_metrics: faceMetrics }),
@@ -24,7 +26,7 @@ async function analyzeWithGroq(transcript, mode = 'analyze', faceMetrics = null)
 
 // ── Sentence generator ────────────────────────────────────────────────────────
 async function generateSentence(level = 'intermediate') {
-  const res = await fetch('/api/english-coach/sentence', {
+  const res = await fetch(`${API_BASE}/api/english-coach/sentence`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ level }),
@@ -209,7 +211,7 @@ export default function EnglishCoachPage() {
       setUser(userId, 'English Learner', null)
       startSession(sessionId, callId, 'English Communication Coaching')
 
-      const joinRes = await fetch('/api/join', {
+      const joinRes = await fetch(`${API_BASE}/api/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -223,7 +225,7 @@ export default function EnglishCoachPage() {
 
       if (!joinRes.ok) throw new Error(`/api/join failed (${joinRes.status})`)
 
-      await fetch('/api/session/config', {
+      await fetch(`${API_BASE}/api/session/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
