@@ -30,8 +30,11 @@ export function useWebcamAnalysis(enabled = false) {
   const busyRef      = useRef(false)   // don't queue frames if last one is still in-flight
   const fpsCountRef  = useRef(0)       // frames successfully sent this second
   const fpsTimerRef  = useRef(null)    // 1-second FPS publish interval
+  const failCountRef = useRef(0)
   const [cameraStatus, setCameraStatus] = useState('idle') // idle | requesting | running | denied | error | stopped
   const [cameraError, setCameraError] = useState('')
+  const [processingStatus, setProcessingStatus] = useState('idle') // idle | processing | backend_offline
+  const [previewStream, setPreviewStream] = useState(null)
 
   const stopCapture = useCallback(() => {
     clearInterval(timerRef.current)
@@ -42,10 +45,12 @@ export function useWebcamAnalysis(enabled = false) {
       streamRef.current.getTracks().forEach(t => t.stop())
       streamRef.current = null
     }
+    setPreviewStream(null)
+    setProcessingStatus('idle')
     setCameraStatus('stopped')
     setCameraError('')
     updateMetrics({ frameFps: 0 })
-  }, [])
+  }, [updateMetrics])
 
   useEffect(() => {
     if (!isInSession && !enabled) { stopCapture(); return }
@@ -63,6 +68,8 @@ export function useWebcamAnalysis(enabled = false) {
         })
         if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
         streamRef.current = stream
+        setPreviewStream(stream)
+        failCountRef.current = 0
 
         // Create hidden video element to receive the stream
         const video = document.createElement('video')
@@ -96,9 +103,18 @@ export function useWebcamAnalysis(enabled = false) {
               // short timeout so stale frames don't back up
               signal: AbortSignal.timeout(2000),
             })
-            fpsCountRef.current++  // count successful frame deliveries
+            if (res.ok) {
+              fpsCountRef.current++  // count successful frame deliveries
+              failCountRef.current = 0
+              setProcessingStatus('processing')
+            } else {
+              failCountRef.current += 1
+              if (failCountRef.current >= 3) setProcessingStatus('backend_offline')
+            }
             // Response is also broadcast via WS — we don't need to parse it here
           } catch {
+            failCountRef.current += 1
+            if (failCountRef.current >= 3) setProcessingStatus('backend_offline')
             // Ignore individual frame errors (network hiccup, backend not ready yet)
           } finally {
             busyRef.current = false
@@ -116,6 +132,8 @@ export function useWebcamAnalysis(enabled = false) {
           const denied = err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError'
           setCameraStatus(denied ? 'denied' : 'error')
           setCameraError(err?.message || 'Could not access camera')
+          setProcessingStatus('idle')
+          setPreviewStream(null)
           updateMetrics({ frameFps: 0 })
           console.warn('[useWebcamAnalysis] webcam access failed:', err?.message)
         }
@@ -129,5 +147,5 @@ export function useWebcamAnalysis(enabled = false) {
     }
   }, [isInSession, enabled, stopCapture])
 
-  return { cameraStatus, cameraError }
+  return { cameraStatus, cameraError, processingStatus, previewStream }
 }

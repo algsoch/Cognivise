@@ -177,10 +177,16 @@ export default function EnglishCoachPage() {
   const [sessionScore, setSessionScore] = useState([])
 
   const recognitionRef = useRef(null)
+  const previewRef = useRef(null)
 
   // Reuse existing real-time backend WS + webcam analyzer pipeline
   useBackendConnection()
-  const { cameraStatus, cameraError } = useWebcamAnalysis(cameraEnabled)
+  const { cameraStatus, cameraError, processingStatus, previewStream } = useWebcamAnalysis(cameraEnabled)
+
+  useEffect(() => {
+    if (!previewRef.current) return
+    previewRef.current.srcObject = previewStream || null
+  }, [previewStream])
 
   // ── Generate target sentence for "Read & Repeat" mode ─────────────────
   const fetchSentence = useCallback(async () => {
@@ -257,7 +263,7 @@ export default function EnglishCoachPage() {
 
     try {
       const analysisMode = mode === 'repeat' ? 'repeat' : mode === 'topic' ? 'topic' : 'analyze'
-      const visionReady = cameraEnabled && cameraStatus === 'running' && (metrics.frameFps || 0) > 0
+      const visionReady = cameraEnabled && cameraStatus === 'running' && processingStatus === 'processing' && (metrics.frameFps || 0) > 0
       const data = await analyzeWithGroq(text, analysisMode, {
         ...(visionReady ? {
           face_detected: metrics.faceDetected,
@@ -417,6 +423,19 @@ export default function EnglishCoachPage() {
               {cameraEnabled ? 'Disable Camera' : 'Enable Camera'}
             </button>
           </div>
+
+          {cameraEnabled && (
+            <div className="mb-2 rounded-lg overflow-hidden border border-border bg-black/40 aspect-video">
+              <video
+                ref={previewRef}
+                autoPlay
+                muted
+                playsInline
+                className="w-full h-full object-cover"
+              />
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="bg-muted/30 rounded px-2 py-1.5">
               Face:{' '}
@@ -439,7 +458,9 @@ export default function EnglishCoachPage() {
             <p className="text-[11px] text-amber-400 mt-2">Waiting for camera permission…</p>
           ) : cameraStatus === 'denied' ? (
             <p className="text-[11px] text-crimson mt-2">Camera permission denied. Allow camera in browser settings and click Enable Camera again.</p>
-          ) : cameraStatus === 'running' ? (
+          ) : cameraStatus === 'running' && processingStatus === 'backend_offline' ? (
+            <p className="text-[11px] text-crimson mt-2">Camera opened, but Vision backend is not processing frames. Start backend on port 8001.</p>
+          ) : cameraStatus === 'running' && processingStatus === 'processing' ? (
             <p className="text-[11px] text-emerald-400 mt-2">Live vision active. Feedback includes face + gaze + movement.</p>
           ) : (
             <p className="text-[11px] text-text-muted mt-2">{cameraError || 'Starting camera...'}</p>
