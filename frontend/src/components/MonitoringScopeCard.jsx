@@ -18,14 +18,30 @@ function Badge({ label, ok }) {
   )
 }
 
-export default function MonitoringScopeCard({ title = 'Monitoring Scope', compact = false }) {
+export default function MonitoringScopeCard({
+  title = 'Monitoring Scope',
+  compact = false,
+  onOpenInspector = null,
+  engineLabel = 'groq',
+}) {
   const metrics = useSessionStore((s) => s.metrics)
+  const freshness = useSessionStore((s) => s.signalFreshness)
   const learnerSpeech = useSessionStore((s) => s.learnerSpeech)
   const agentSpeech = useSessionStore((s) => s.agentSpeech)
   const agentTranscript = useSessionStore((s) => s.agentTranscript)
 
   const aiSpoken = (agentTranscript || agentSpeech || '').trim()
   const userSpoken = (learnerSpeech || '').trim()
+  const now = Date.now()
+  const frameAge = freshness.frameAt ? Math.max(0, Math.round((now - freshness.frameAt) / 1000)) : null
+  const learnerAge = freshness.learnerSpeechAt ? Math.max(0, Math.round((now - freshness.learnerSpeechAt) / 1000)) : null
+  const aiAge = freshness.agentSpeechAt ? Math.max(0, Math.round((now - freshness.agentSpeechAt) / 1000)) : null
+  const syncScore = (() => {
+    if (metrics.speakingDetected && learnerAge !== null && learnerAge <= 8) return 92
+    if (metrics.speakingDetected && (learnerAge === null || learnerAge > 8)) return 48
+    if (!metrics.speakingDetected && learnerAge !== null && learnerAge <= 8) return 42
+    return 72
+  })()
 
   return (
     <div className="glass rounded-xl border border-border p-3">
@@ -36,6 +52,17 @@ export default function MonitoringScopeCard({ title = 'Monitoring Scope', compac
         <span className="text-[10px] text-text-muted font-mono">
           frame {metrics.frameHash || '---'}
         </span>
+      </div>
+
+      <div className="flex items-center justify-between mb-2 text-[10px]">
+        <span className="text-text-muted">Engine: <span className="text-text-primary uppercase font-mono">{engineLabel}</span></span>
+        <span className="text-text-muted">Sync <span className="text-text-primary font-mono">{syncScore}%</span></span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-[10px] mb-2">
+        <div className="bg-surface/50 border border-border/50 rounded px-2 py-1">Frame age <span className="text-text-primary font-mono">{frameAge == null ? '--' : `${frameAge}s`}</span></div>
+        <div className="bg-surface/50 border border-border/50 rounded px-2 py-1">You age <span className="text-text-primary font-mono">{learnerAge == null ? '--' : `${learnerAge}s`}</span></div>
+        <div className="bg-surface/50 border border-border/50 rounded px-2 py-1">AI age <span className="text-text-primary font-mono">{aiAge == null ? '--' : `${aiAge}s`}</span></div>
       </div>
 
       <div className="flex flex-wrap gap-1.5 mb-2">
@@ -84,6 +111,15 @@ export default function MonitoringScopeCard({ title = 'Monitoring Scope', compac
             {aiSpoken || 'No recent AI speech captured yet'}
           </div>
         </>
+      )}
+
+      {onOpenInspector && (
+        <button
+          onClick={onOpenInspector}
+          className="mt-2 w-full text-xs px-3 py-1.5 rounded-lg border border-pulse/30 text-pulse hover:bg-pulse/10 transition-all"
+        >
+          Open Monitoring Inspector
+        </button>
       )}
     </div>
   )

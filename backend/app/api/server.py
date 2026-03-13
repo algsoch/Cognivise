@@ -424,6 +424,18 @@ async def analyze_frame(request: Request):
             "people_count"        : proc._people_count,
             "frame_hash"          : frame_hash,
         }
+        if not signal.face_detected:
+            metrics.update({
+                "gaze_on_screen": False,
+                "blink_rate": 0.0,
+                "head_yaw": 0.0,
+                "head_pitch": 0.0,
+                "eye_ar": 0.0,
+                "fixation_duration": 0.0,
+                "eye_closure_duration": 0.0,
+                "gaze_direction": "away",
+                "people_count": 0,
+            })
         MetricsBroadcaster.instance().push(metrics)
         return {"ok": True, **metrics}
     except Exception as exc:

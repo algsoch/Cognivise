@@ -4,7 +4,7 @@
  * detailed feedback on grammar, clarity, and pronunciation hints.
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useSessionStore } from '../hooks/useSessionStore'
@@ -244,7 +244,9 @@ export default function EnglishCoachPage() {
   const setAgentSpeech = useSessionStore((s) => s.setAgentSpeech)
   const setAgentTranscript = useSessionStore((s) => s.setAgentTranscript)
   const addConversationEntry = useSessionStore((s) => s.addConversationEntry)
+  const setSignalFreshness = useSessionStore((s) => s.setSignalFreshness)
   const metrics = useSessionStore((s) => s.metrics)
+  const freshness = useSessionStore((s) => s.signalFreshness)
   const [cameraEnabled, setCameraEnabled] = useState(false)
   const [visionBootstrapped, setVisionBootstrapped] = useState(false)
   const [visionBootError, setVisionBootError] = useState('')
@@ -260,11 +262,18 @@ export default function EnglishCoachPage() {
   const [history, setHistory]         = useState([]) // local session history
   const [sessionScore, setSessionScore] = useState([])
   const [speakFeedback, setSpeakFeedback] = useState(true)
+  const [showInspector, setShowInspector] = useState(false)
+  const [inspectorTick, setInspectorTick] = useState(Date.now())
 
   const recognitionRef = useRef(null)
   const previewRef = useRef(null)
   const bootRef = useRef(false)
   const micRetryRef = useRef(0)
+
+  useEffect(() => {
+    const t = setInterval(() => setInspectorTick(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
 
   // Reuse existing real-time backend WS + webcam analyzer pipeline
   useBackendConnection()
@@ -360,6 +369,13 @@ export default function EnglishCoachPage() {
       return
     }
 
+    const frameAgeMs = freshness.frameAt ? Date.now() - freshness.frameAt : Infinity
+    const visionLive = cameraEnabled && visionBootstrapped && cameraStatus === 'running' && processingStatus === 'processing' && frameAgeMs < 2500
+    if (!visionLive) {
+      setError('Monitoring not live yet. Enable camera and wait for stable face/frame signals before speaking.')
+      return
+    }
+
     const rec = new SR()
     rec.continuous = false
     rec.interimResults = true
@@ -405,7 +421,7 @@ export default function EnglishCoachPage() {
 
     recognitionRef.current = rec
     rec.start()
-  }, [])
+  }, [cameraEnabled, visionBootstrapped, cameraStatus, processingStatus, freshness.frameAt])
 
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop()
@@ -417,6 +433,13 @@ export default function EnglishCoachPage() {
     const text = transcript.trim()
     if (!text) { setError('No speech detected. Try again.'); return }
 
+    const frameAgeMs = freshness.frameAt ? Date.now() - freshness.frameAt : Infinity
+    const visionLive = cameraEnabled && visionBootstrapped && cameraStatus === 'running' && processingStatus === 'processing' && frameAgeMs < 2500
+    if (!visionLive) {
+      setError('Monitoring pipeline is not live. Enable camera and wait for fresh frame signal before analysis.')
+      return
+    }
+
     setLoading(true)
     setError('')
     setResult(null)
@@ -425,6 +448,7 @@ export default function EnglishCoachPage() {
       const analysisMode = mode === 'repeat' ? 'repeat' : mode === 'topic' ? 'topic' : 'analyze'
       const visionReady = cameraEnabled && cameraStatus === 'running' && processingStatus === 'processing' && (metrics.frameFps || 0) > 0
       setLearnerSpeech(text)
+      setSignalFreshness('learnerSpeechAt')
       addConversationEntry('user', text)
       const data = await analyzeWithGroq(text, analysisMode, {
         ...(visionReady ? {
@@ -447,16 +471,21 @@ export default function EnglishCoachPage() {
         } : {}),
       })
       setResult(data)
-      const spokenFeedback = [data.overall_feedback, data.improvement_tip].filter(Boolean).join(' ')
+      const shortOverall = (data.overall_feedback || '').split('.').slice(0, 1).join('.').trim()
+      const spokenFeedback = [shortOverall, data.improvement_tip].filter(Boolean).join('. ').trim()
       if (spokenFeedback) {
         setAgentTranscript(spokenFeedback)
         setAgentSpeech(spokenFeedback)
+        setSignalFreshness('agentSpeechAt')
         addConversationEntry('ai', spokenFeedback, 'english_feedback')
         if (speakFeedback && window.speechSynthesis) {
           window.speechSynthesis.cancel()
           const u = new SpeechSynthesisUtterance(spokenFeedback.replace(/Algsoch/g, 'Alagsoch'))
-          u.rate = 1.0
-          u.pitch = 1.0
+          const voices = window.speechSynthesis.getVoices()
+          const preferred = voices.find((v) => /Google US English|Samantha|Karen|Moira|en-US/i.test(v.name))
+          if (preferred) u.voice = preferred
+          u.rate = 1.12
+          u.pitch = 1.02
           window.speechSynthesis.speak(u)
         }
       }
@@ -475,12 +504,15 @@ export default function EnglishCoachPage() {
     mode,
     fetchSentence,
     cameraEnabled,
+    visionBootstrapped,
     cameraStatus,
     processingStatus,
+    freshness.frameAt,
     metrics,
     setLearnerSpeech,
     setAgentSpeech,
     setAgentTranscript,
+    setSignalFreshness,
     addConversationEntry,
     speakFeedback,
   ])
@@ -493,6 +525,21 @@ export default function EnglishCoachPage() {
   const avgScore = sessionScore.length
     ? Math.round(sessionScore.reduce((a, b) => a + b, 0) / sessionScore.length)
     : null
+
+  const signalHealth = useMemo(() => {
+    const now = inspectorTick
+    const frameAgeMs = freshness.frameAt ? (now - freshness.frameAt) : Infinity
+    const visionLive = cameraEnabled && visionBootstrapped && cameraStatus === 'running' && processingStatus === 'processing' && frameAgeMs < 2500
+    const micReady = !!(window.SpeechRecognition || window.webkitSpeechRecognition)
+    const speechSyncScore = (() => {
+      const learnerAgeMs = freshness.learnerSpeechAt ? now - freshness.learnerSpeechAt : Infinity
+      if (metrics.speakingDetected && learnerAgeMs < 8000) return 90
+      if (metrics.speakingDetected && learnerAgeMs >= 8000) return 45
+      if (!metrics.speakingDetected && learnerAgeMs < 8000) return 40
+      return 70
+    })()
+    return { visionLive, micReady, speechSyncScore, frameAgeMs }
+  }, [inspectorTick, freshness, cameraEnabled, visionBootstrapped, cameraStatus, processingStatus, metrics.speakingDetected])
 
   const visionSdkStatus =
     !cameraEnabled ? 'camera-off' :
@@ -580,7 +627,35 @@ export default function EnglishCoachPage() {
           >
             {speakFeedback ? 'AI voice on' : 'AI voice off'}
           </button>
+          <button
+            onClick={() => setShowInspector((v) => !v)}
+            className={`text-xs px-3 py-1 rounded-full border transition-all ${
+              showInspector
+                ? 'border-pulse/50 bg-pulse/10 text-pulse'
+                : 'border-border text-text-muted hover:border-pulse/30'
+            }`}
+          >
+            {showInspector ? 'Hide Inspector' : 'Monitoring Inspector'}
+          </button>
         </div>
+
+        {showInspector && (
+          <div className="bg-surface/60 border border-border rounded-xl p-4 space-y-3 text-xs">
+            <div className="font-mono uppercase tracking-wide text-text-muted">What is monitored and how</div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-muted/30 rounded px-2 py-1.5">Frame freshness: <span className="text-text-primary font-mono">{Number.isFinite(signalHealth.frameAgeMs) ? `${Math.round(signalHealth.frameAgeMs / 1000)}s` : '--'}</span></div>
+              <div className="bg-muted/30 rounded px-2 py-1.5">Speech-video sync: <span className="text-text-primary font-mono">{signalHealth.speechSyncScore}%</span></div>
+              <div className="bg-muted/30 rounded px-2 py-1.5">Mouth open: <span className="text-text-primary font-mono">{Number(metrics.mouthOpenRatio || 0).toFixed(2)}</span></div>
+              <div className="bg-muted/30 rounded px-2 py-1.5">Tongue score: <span className="text-text-primary font-mono">{Number(metrics.tongueScore || 0).toFixed(2)}</span></div>
+              <div className="bg-muted/30 rounded px-2 py-1.5">Speaking detected: <span className="text-text-primary">{metrics.speakingDetected ? 'yes' : 'no'}</span></div>
+              <div className="bg-muted/30 rounded px-2 py-1.5">Model action: <span className="text-text-primary">Groq scores using live vision context</span></div>
+            </div>
+            <div className="text-text-secondary leading-relaxed">
+              Pipeline: Browser camera frame to backend frame analysis to live monitoring state to Groq feedback prompt context.
+              If frame freshness is stale or camera is not live, coaching analysis is blocked for quality.
+            </div>
+          </div>
+        )}
 
         {/* Target sentence (repeat mode) */}
         <AnimatePresence>
@@ -662,7 +737,7 @@ export default function EnglishCoachPage() {
               </span>
             </div>
             <div className="bg-muted/30 rounded px-2 py-1.5">FPS: <span className="text-pulse font-mono">{cameraEnabled ? (metrics.frameFps || 0) : 0}</span></div>
-            <div className="bg-muted/30 rounded px-2 py-1.5">Gaze: <span className="text-text-primary capitalize">{cameraEnabled ? (metrics.gazeDirection || 'center') : 'off'}</span></div>
+            <div className="bg-muted/30 rounded px-2 py-1.5">Gaze: <span className="text-text-primary capitalize">{cameraEnabled ? (metrics.faceDetected ? (metrics.gazeDirection || 'center') : 'no-face') : 'off'}</span></div>
             <div className="bg-muted/30 rounded px-2 py-1.5">Movement: <span className="text-text-primary font-mono">{cameraEnabled ? Math.round((metrics.restlessness || 0) * 100) : 0}%</span></div>
           </div>
 
@@ -696,7 +771,7 @@ export default function EnglishCoachPage() {
           ) : cameraStatus === 'running' && processingStatus === 'backend_offline' ? (
             <p className="text-[11px] text-crimson mt-2">Camera opened, but Vision SDK processor is not ready. Keep backend running and retry Enable Camera.</p>
           ) : cameraStatus === 'running' && processingStatus === 'processing' ? (
-            <p className="text-[11px] text-emerald-400 mt-2">Live vision active. Feedback includes face + gaze + movement.</p>
+            <p className="text-[11px] text-emerald-400 mt-2">Live vision active. Feedback includes face + gaze + movement + speech-mouth cues.</p>
           ) : (
             <p className="text-[11px] text-text-muted mt-2">{cameraError || 'Starting camera...'}</p>
           )}
@@ -781,7 +856,12 @@ export default function EnglishCoachPage() {
       {/* Right metrics panel: aligned with other learning modes */}
       <div className="w-[280px] flex-shrink-0 flex flex-col gap-3 p-4 border-l border-border overflow-y-auto">
         <AIAgentPanel />
-        <MonitoringScopeCard title="Coach Monitoring" compact={false} />
+        <MonitoringScopeCard
+          title="Coach Monitoring"
+          compact={false}
+          onOpenInspector={() => setShowInspector(true)}
+          engineLabel="groq"
+        />
         <div className="grid grid-cols-2 gap-2">
           <EngagementMeter score={metrics.engagementScore} label="Engagement" compact />
           <EngagementMeter score={metrics.attentionScore} label="Attention" compact />

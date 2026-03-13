@@ -110,6 +110,7 @@ export function useBackendConnection() {
   const setAgentAction         = useSessionStore((s) => s.setAgentAction)
   const setLearnerSpeech       = useSessionStore((s) => s.setLearnerSpeech)
   const addConversationEntry   = useSessionStore((s) => s.addConversationEntry)
+  const setSignalFreshness     = useSessionStore((s) => s.setSignalFreshness)
   const setSendMessage         = useSessionStore((s) => s.setSendMessage)
   const setSendRaw             = useSessionStore((s) => s.setSendRaw)
 
@@ -176,6 +177,7 @@ export function useBackendConnection() {
               updateMetrics({ aiResponseMs: aiMs })
             }
             setAgentSpeech(raw.agent_speech)
+            setSignalFreshness('agentSpeechAt')
             browserSpeak(raw.agent_speech)  // instant TTS — no Gemini lag
             // Log to conversation history (deduped below)
             addConversationEntry('ai', raw.agent_speech, raw.agent_action ?? null)
@@ -187,6 +189,7 @@ export function useBackendConnection() {
             setAgentTranscript(raw.agent_transcript)
             if (!raw.agent_speech) {
               setAgentSpeech(raw.agent_transcript)
+              setSignalFreshness('agentSpeechAt')
             }
           }
 
@@ -198,8 +201,13 @@ export function useBackendConnection() {
           // Learner speech: what the user just said (for activity panel "You said" section)
           if (raw.learner_speech) {
             setLearnerSpeech(raw.learner_speech)
+            setSignalFreshness('learnerSpeechAt')
             // Log to conversation history
             addConversationEntry('user', raw.learner_speech)
+          }
+
+          if (raw.frame_hash !== undefined) {
+            setSignalFreshness('frameAt')
           }
 
           // Mastery updates: { mastery: { "Python": 62.5 } }

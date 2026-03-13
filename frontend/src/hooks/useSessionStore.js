@@ -81,6 +81,11 @@ export const useSessionStore = create(
       agentSpeech: '',
       agentAction: null,
       learnerSpeech: '',
+      signalFreshness: {
+        frameAt: 0,
+        learnerSpeechAt: 0,
+        agentSpeechAt: 0,
+      },
     }),
 
   endSession: () => set({ isInSession: false }),
@@ -90,6 +95,11 @@ export const useSessionStore = create(
 
   // Live metrics (updated by RealtimeMetricsProvider)
   metrics: { ...initialMetrics },
+  signalFreshness: {
+    frameAt: 0,
+    learnerSpeechAt: 0,
+    agentSpeechAt: 0,
+  },
   metricsHistory: [],   // [{timestamp, ...metrics}] — last 120 ticks
 
   updateMetrics: (patch) =>
@@ -101,6 +111,14 @@ export const useSessionStore = create(
       ]
       return { metrics: updated, metricsHistory: history }
     }),
+
+  setSignalFreshness: (field, ts = Date.now()) =>
+    set((state) => ({
+      signalFreshness: {
+        ...state.signalFreshness,
+        [field]: ts,
+      },
+    })),
 
   // Interventions log
   interventions: [],
