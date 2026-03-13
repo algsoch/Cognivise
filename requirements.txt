@@ -8,6 +8,7 @@ vision-agents[getstream,gemini,deepgram,elevenlabs,ultralytics]>=0.3.8
 # LLMs
 anthropic>=0.34.0
 google-genai>=1.0.0
+groq>=0.13.0          # Groq LLaMA inference (English Coach)
 
 # Database
 sqlalchemy[asyncio]>=2.0.32

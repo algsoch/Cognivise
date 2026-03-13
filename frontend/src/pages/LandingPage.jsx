@@ -8,6 +8,7 @@
 import { useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useSessionStore } from '../hooks/useSessionStore'
+import { useHistoryStore } from '../hooks/useHistoryStore'
 import { motion, AnimatePresence } from 'framer-motion'
 
 function ytEmbedUrl(raw) {
@@ -175,6 +176,29 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-void flex flex-col">
+      {/* Top nav */}
+      <nav className="flex items-center justify-end gap-2 px-5 py-3 relative z-20">
+        {useHistoryStore.getState().sessions.length > 0 && (
+          <button
+            onClick={() => navigate('/profile')}
+            className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary
+                       border border-border hover:border-pulse/40 px-3 py-1.5 rounded-lg transition-all"
+          >
+            👤 Profile &amp; History
+            <span className="bg-pulse/20 text-pulse text-xs px-1.5 rounded-full font-mono">
+              {useHistoryStore.getState().sessions.length}
+            </span>
+          </button>
+        )}
+        <button
+          onClick={() => navigate('/english-coach')}
+          className="flex items-center gap-1.5 text-xs text-text-muted hover:text-emerald-400
+                     border border-border hover:border-emerald-500/40 px-3 py-1.5 rounded-lg transition-all"
+        >
+          🗣 English Coach
+        </button>
+      </nav>
+
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-20%] left-[30%] w-[600px] h-[600px] rounded-full bg-pulse/5 blur-3xl" />
         <div className="absolute bottom-[-10%] right-[20%] w-[400px] h-[400px] rounded-full bg-aurora/5 blur-3xl" />

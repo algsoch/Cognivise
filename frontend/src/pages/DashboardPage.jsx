@@ -98,12 +98,26 @@ export default function DashboardPage() {
             }
           </div>
         </div>
-        <button
-          onClick={() => navigate('/?returning=1')}
-          className="btn-ghost text-sm border border-pulse/30 text-pulse hover:bg-pulse/10 px-4 py-1.5 rounded-lg"
-        >
-          + New Session
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate('/profile')}
+            className="btn-ghost text-sm border border-border text-text-muted hover:text-text-primary hover:border-pulse/30 px-3 py-1.5 rounded-lg"
+          >
+            👤 Profile
+          </button>
+          <button
+            onClick={() => navigate('/english-coach')}
+            className="btn-ghost text-sm border border-border text-text-muted hover:text-emerald-400 hover:border-emerald-500/30 px-3 py-1.5 rounded-lg"
+          >
+            🗣 English
+          </button>
+          <button
+            onClick={() => navigate('/?returning=1')}
+            className="btn-ghost text-sm border border-pulse/30 text-pulse hover:bg-pulse/10 px-4 py-1.5 rounded-lg"
+          >
+            + New Session
+          </button>
+        </div>
       </motion.div>
 
       {/* Stats row */}

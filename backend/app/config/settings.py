@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     claude_api_key: str = Field("", description="Anthropic Claude API key (optional — degrades gracefully)")
     gemini_api_key: str = Field(..., description="Google Gemini API key")
     google_api_key: str = Field("", description="Alias for Gemini used by vision-agents")
+    groq_api_key: str = Field("", description="Groq API key for fast LLaMA inference")
 
     # ── Speech ────────────────────────────────────────────────
     deepgram_api_key: str = Field("", description="Deepgram STT key")

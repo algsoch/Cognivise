@@ -406,6 +406,168 @@ async def analyze_frame(request: Request):
         return {"ok": False, "reason": str(exc)}
 
 
+# ── English Coach (Groq LLaMA) ─────────────────────────────────────────────────
+
+_GROQ_ANALYZE_PROMPT = """\
+You are an expert English communication coach. Analyze the following speech input from a learner.
+Return ONLY a valid JSON object (no markdown, no explanation) with this exact structure:
+{{
+  "score": <integer 0-100>,
+  "tone": "<formal|casual|neutral>",
+  "corrections": [
+    {{"word": "<original word>", "suggestion": "<better word>", "issue": "<brief explanation>"}}
+  ],
+  "grammar_notes": ["<note 1>", "<note 2>"],
+  "overall_feedback": "<2-3 sentence constructive paragraph>",
+  "improvement_tip": "<1 specific actionable tip for today>"
+}}
+
+Rules:
+- score: 100 = perfect native-speaker English, 0 = incomprehensible
+- corrections: only for WRONG or awkward word choices, filler words, unclear expressions
+- grammar_notes: sentence-level grammar issues (tense, articles, prepositions, etc.)
+- Keep all values concise. Maximum 3 corrections. Maximum 3 grammar notes.
+- If speech is perfect, return empty arrays for corrections and grammar_notes.
+
+Learner said: "{transcript}"
+"""
+
+_GROQ_REPEAT_PROMPT = """\
+You are an English pronunciation and fluency coach. The learner was asked to repeat a sentence.
+Analyze their response for accuracy, fluency mistakes, and missing words compared to natural spoken English.
+Return ONLY valid JSON (no markdown):
+{{
+  "score": <integer 0-100>,
+  "tone": "<formal|casual|neutral>",
+  "corrections": [
+    {{"word": "<problematic word>", "suggestion": "<correct form>", "issue": "<explanation>"}}
+  ],
+  "grammar_notes": ["<note>"],
+  "overall_feedback": "<2-3 sentence evaluation of clarity and fluency>",
+  "improvement_tip": "<specific pronunciation or fluency tip>"
+}}
+
+Learner said: "{transcript}"
+"""
+
+_GROQ_SENTENCE_PROMPT = """\
+Generate ONE natural English sentence for a learner ({level} level) to practice speaking aloud.
+The sentence should:
+- Be realistic, conversational, and interesting
+- Test common pronunciation challenges (for intermediate: words with 'th', 'r/l', silent letters, etc.)
+- Be 10-20 words for beginner, 15-25 words for intermediate, 20-35 for advanced
+
+Return ONLY valid JSON: {{"sentence": "<the sentence>"}}
+"""
+
+
+@app.post("/api/english-coach")
+async def english_coach_analyze(request: Request):
+    """
+    Analyze a speech transcript using Groq LLaMA-3.
+    Body: { "transcript": str, "mode": "analyze"|"repeat"|"topic" }
+    """
+    import json as _json
+    try:
+        from backend.app.config.settings import settings
+        from groq import Groq
+    except ImportError as e:
+        return {"ok": False, "error": f"groq package not installed: {e}"}
+
+    if not settings.groq_api_key:
+        return {"ok": False, "error": "GROQ_API_KEY not configured"}
+
+    try:
+        body = await request.json()
+        transcript = (body.get("transcript") or "").strip()
+        mode       = body.get("mode", "analyze")
+        if not transcript:
+            return {"ok": False, "error": "transcript is required"}
+
+        if mode == "repeat":
+            prompt = _GROQ_REPEAT_PROMPT.format(transcript=transcript)
+        else:
+            prompt = _GROQ_ANALYZE_PROMPT.format(transcript=transcript)
+
+        client   = Groq(api_key=settings.groq_api_key)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=700,
+        )
+        raw = response.choices[0].message.content.strip()
+
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+
+        result = _json.loads(raw)
+        result["ok"] = True
+        return result
+
+    except Exception as exc:
+        logger.error("English coach analyze error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
+@app.post("/api/english-coach/sentence")
+async def english_coach_sentence(request: Request):
+    """
+    Generate a practice sentence for the learner to read aloud.
+    Body: { "level": "beginner"|"intermediate"|"advanced" }
+    """
+    import json as _json
+    try:
+        from backend.app.config.settings import settings
+        from groq import Groq
+    except ImportError as e:
+        return {"ok": False, "error": f"groq package not installed: {e}"}
+
+    if not settings.groq_api_key:
+        # Fallback sentences if key not set
+        fallbacks = {
+            "beginner":     "The weather is nice today. I like to walk in the park.",
+            "intermediate": "She quickly realized that the beautiful weather would not last throughout the entire weekend.",
+            "advanced":     "Despite the overwhelming evidence suggesting otherwise, the committee unanimously decided to proceed with the controversial proposal.",
+        }
+        try:
+            body = await request.json()
+            level = body.get("level", "intermediate")
+        except Exception:
+            level = "intermediate"
+        return {"ok": True, "sentence": fallbacks.get(level, fallbacks["intermediate"])}
+
+    try:
+        body  = await request.json()
+        level = body.get("level", "intermediate")
+
+        client   = Groq(api_key=settings.groq_api_key)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": _GROQ_SENTENCE_PROMPT.format(level=level)}],
+            temperature=0.9,
+            max_tokens=120,
+        )
+        raw = response.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+
+        result = _json.loads(raw)
+        result["ok"] = True
+        return result
+
+    except Exception as exc:
+        logger.error("English coach sentence error: %s", exc)
+        return {"ok": False, "sentence": "Please describe your daily morning routine in detail.", "error": str(exc)}
+
+
 # ── Server runner ─────────────────────────────────────────────────────────────
 
 _server_thread: Optional[threading.Thread] = None

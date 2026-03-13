@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useSessionStore } from '../hooks/useSessionStore'
+import { useHistoryStore } from '../hooks/useHistoryStore'
 import AgentStatusBar from '../components/AgentStatusBar'
 import EngagementMeter from '../components/EngagementMeter'
 import AttentionWaveform from '../components/AttentionWaveform'
@@ -735,6 +736,24 @@ export default function SessionPage() {
   const handleEnd = () => {
     screenStream?.getTracks().forEach((t) => t.stop())
     setScreenStream(null)
+    // ── Save session to persistent history before ending ──
+    const store = useSessionStore.getState()
+    const hist  = store.metricsHistory
+    const avg = (key) => hist.length
+      ? Math.round(hist.reduce((s, h) => s + (h[key] || 0), 0) / hist.length)
+      : 0
+    useHistoryStore.getState().addSession({
+      id:                  store.sessionId || String(Date.now()),
+      topic:               store.topic || '',
+      contentSource:       store.contentSource || null,
+      startedAt:           store.sessionStartedAt || Date.now(),
+      duration:            store.sessionStartedAt ? Date.now() - store.sessionStartedAt : 0,
+      avgEngagement:       avg('engagementScore'),
+      avgAttention:        avg('attentionScore'),
+      questionsAnswered:   store.conversationLog.filter((e) => e.role === 'user').length,
+      mastery:             store.mastery || {},
+      conversationPreview: store.conversationLog.slice(-8),
+    })
     endSession()
     navigate('/dashboard')
   }
