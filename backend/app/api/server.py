@@ -428,7 +428,10 @@ Rules:
 - grammar_notes: sentence-level grammar issues (tense, articles, prepositions, etc.)
 - Keep all values concise. Maximum 3 corrections. Maximum 3 grammar notes.
 - If speech is perfect, return empty arrays for corrections and grammar_notes.
+- You MUST incorporate the visual context (face/gaze/movement). If the learner is looking away,
+  has high movement/restlessness, or no face detected, mention it in feedback and give one concrete fix.
 
+Visual context: {vision_context}
 Learner said: "{transcript}"
 """
 
@@ -447,6 +450,7 @@ Return ONLY valid JSON (no markdown):
   "improvement_tip": "<specific pronunciation or fluency tip>"
 }}
 
+Visual context: {vision_context}
 Learner said: "{transcript}"
 """
 
@@ -481,13 +485,30 @@ async def english_coach_analyze(request: Request):
         body = await request.json()
         transcript = (body.get("transcript") or "").strip()
         mode       = body.get("mode", "analyze")
+        face_metrics = body.get("face_metrics") if isinstance(body.get("face_metrics"), dict) else {}
         if not transcript:
             return {"ok": False, "error": "transcript is required"}
 
-        if mode == "repeat":
-            prompt = _GROQ_REPEAT_PROMPT.format(transcript=transcript)
+        # Structured vision context passed from EnglishCoachPage (webcam analysis)
+        if face_metrics:
+            vision_context = (
+                f"face_detected={face_metrics.get('face_detected')}, "
+                f"gaze_on_screen={face_metrics.get('gaze_on_screen')}, "
+                f"gaze_direction={face_metrics.get('gaze_direction')}, "
+                f"restlessness={face_metrics.get('restlessness')}, "
+                f"blink_rate={face_metrics.get('blink_rate')}, "
+                f"head_yaw={face_metrics.get('head_yaw')}, "
+                f"head_pitch={face_metrics.get('head_pitch')}, "
+                f"people_count={face_metrics.get('people_count')}, "
+                f"frame_fps={face_metrics.get('frame_fps')}"
+            )
         else:
-            prompt = _GROQ_ANALYZE_PROMPT.format(transcript=transcript)
+            vision_context = "No visual metrics available"
+
+        if mode == "repeat":
+            prompt = _GROQ_REPEAT_PROMPT.format(transcript=transcript, vision_context=vision_context)
+        else:
+            prompt = _GROQ_ANALYZE_PROMPT.format(transcript=transcript, vision_context=vision_context)
 
         client   = Groq(api_key=settings.groq_api_key)
         response = client.chat.completions.create(
@@ -496,7 +517,7 @@ async def english_coach_analyze(request: Request):
             temperature=0.3,
             max_tokens=700,
         )
-        raw = response.choices[0].message.content.strip()
+        raw = (response.choices[0].message.content or "").strip()
 
         # Strip markdown code fences if present
         if raw.startswith("```"):
@@ -507,6 +528,7 @@ async def english_coach_analyze(request: Request):
 
         result = _json.loads(raw)
         result["ok"] = True
+        result["vision_used"] = bool(face_metrics)
         return result
 
     except Exception as exc:
@@ -552,7 +574,7 @@ async def english_coach_sentence(request: Request):
             temperature=0.9,
             max_tokens=120,
         )
-        raw = response.choices[0].message.content.strip()
+        raw = (response.choices[0].message.content or "").strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):

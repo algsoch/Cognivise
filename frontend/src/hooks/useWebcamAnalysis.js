@@ -21,7 +21,7 @@ const JPEG_QUALITY      = 0.65  // compressed JPEG; face analysis works fine at 
 const FRAME_WIDTH       = 320   // scale down before sending (saves bandwidth)
 const FRAME_HEIGHT      = 240
 
-export function useWebcamAnalysis() {
+export function useWebcamAnalysis(enabled = false) {
   const isInSession  = useSessionStore((s) => s.isInSession)
   const updateMetrics = useSessionStore((s) => s.updateMetrics)
   const streamRef    = useRef(null)
@@ -43,7 +43,7 @@ export function useWebcamAnalysis() {
   }, [])
 
   useEffect(() => {
-    if (!isInSession) { stopCapture(); return }
+    if (!isInSession && !enabled) { stopCapture(); return }
 
     let cancelled = false
 
@@ -113,5 +113,5 @@ export function useWebcamAnalysis() {
       cancelled = true
       stopCapture()
     }
-  }, [isInSession, stopCapture])
+  }, [isInSession, enabled, stopCapture])
 }
