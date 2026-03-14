@@ -34,6 +34,8 @@ const initialMetrics = {
   speakingDetected: false, // inferred speaking state from lip activity
   tongueScore: 0,        // heuristic tongue visibility confidence
   tongueVisible: false,  // coarse boolean signal from blendshape
+  mpLandmarksOn: false,  // real MediaPipe landmarks currently detected
+  noddingLikely: false,  // stricter nodding event signal from pitch dynamics
   // Latency tracking (milliseconds)
   userResponseMs: 0,     // how fast learner responded to last question
   aiResponseMs: 0,       // how fast AI answered learner's input
@@ -85,6 +87,7 @@ export const useSessionStore = create(
         frameAt: 0,
         learnerSpeechAt: 0,
         agentSpeechAt: 0,
+        faceSignalAt: 0,
       },
     }),
 
@@ -99,6 +102,7 @@ export const useSessionStore = create(
     frameAt: 0,
     learnerSpeechAt: 0,
     agentSpeechAt: 0,
+    faceSignalAt: 0,
   },
   metricsHistory: [],   // [{timestamp, ...metrics}] — last 120 ticks
 

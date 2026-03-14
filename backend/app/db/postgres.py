@@ -7,6 +7,7 @@ Tables created on first run:
   - mastery_records
   - interaction_logs
   - engagement_history
+  - speech_archives
 """
 
 from __future__ import annotations
@@ -38,16 +39,24 @@ from backend.app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-# ── Engine (initialised lazily in init_db) ───────────────────────────────────
-_engine = None
-_async_session_factory = None
+import asyncio
 
+# ── Engine (initialised lazily per loop) ───────────────────────────────────
+_engines = {}
+_session_factories = {}
+
+def _get_loop_id():
+    try:
+        return id(asyncio.get_running_loop())
+    except RuntimeError:
+        return None
 
 def get_async_session_factory():
-    """Return the current session factory (must have called init_db first)."""
-    if _async_session_factory is None:
-        raise RuntimeError("Database not initialised — call init_db() first")
-    return _async_session_factory
+    """Return the current session factory for this event loop (must have called init_db first)."""
+    loop_id = _get_loop_id()
+    if loop_id not in _session_factories:
+        raise RuntimeError("Database not initialised for this loop — call init_db() first")
+    return _session_factories[loop_id]
 
 
 # ── Base ────────────────────────────────────────────────────────────────────
@@ -131,42 +140,68 @@ class EngagementHistoryRecord(Base):
     restlessness_score = Column(Float, nullable=True)
 
 
+class SpeechArchiveRecord(Base):
+    __tablename__ = "speech_archives"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    user_id = Column(String(128), nullable=False, index=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    transcript = Column(Text, nullable=True)
+    score = Column(Float, nullable=True)
+    tone = Column(String(64), nullable=True)
+    follow_up_relevance_score = Column(Float, nullable=True)
+    how_you_should_say_it = Column(Text, nullable=True)
+    overall_feedback = Column(Text, nullable=True)
+    speaking_style_notes = Column(JSONB, default=list)
+    audio_data_url = Column(Text, nullable=True)  # Large data URL for audio
+    video_data_url = Column(Text, nullable=True)  # Large data URL for raw video
+    analysis_video_data_url = Column(Text, nullable=True) # Large data URL for face overlaid video
+    audio_features = Column(JSONB, nullable=True)  # JSON with duration, volume, etc.
+
+
 # ── Lifecycle ────────────────────────────────────────────────────────────────
 async def init_db() -> None:
     """Create all tables if they don't exist.
 
-    Safe to call multiple times. Creates the engine only once (on first call),
-    bound to the Vision Agents asyncio event loop so all asyncpg connections
+    Safe to call multiple times. Creates the engine per-loop,
+    bound to the current asyncio event loop so all asyncpg connections
     are loop-consistent.
     """
-    global _engine, _async_session_factory
+    global _engines, _session_factories
+    loop_id = _get_loop_id()
 
-    if _engine is None:
-        _engine = create_async_engine(
+    if loop_id not in _engines:
+        engine = create_async_engine(
             settings.postgres_dsn,
             echo=settings.debug,
             pool_size=10,
             max_overflow=20,
             pool_pre_ping=True,
         )
-        _async_session_factory = async_sessionmaker(
-            bind=_engine,
+        _engines[loop_id] = engine
+        _session_factories[loop_id] = async_sessionmaker(
+            bind=engine,
             class_=AsyncSession,
             expire_on_commit=False,
         )
 
-    async with _engine.begin() as conn:
+    engine = _engines[loop_id]
+    async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    logger.info("PostgreSQL schema initialised")
+    logger.info(f"PostgreSQL schema initialised for loop {loop_id}")
 
 
 async def close_db() -> None:
-    global _engine, _async_session_factory
-    if _engine is not None:
-        await _engine.dispose()
-        _engine = None
-        _async_session_factory = None
-    logger.info("PostgreSQL connection pool closed")
+    global _engines, _session_factories
+    loop_id = _get_loop_id()
+    
+    if loop_id in _engines:
+        engine = _engines[loop_id]
+        await engine.dispose()
+        del _engines[loop_id]
+        if loop_id in _session_factories:
+            del _session_factories[loop_id]
+        logger.info(f"PostgreSQL connection pool closed for loop {loop_id}")
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

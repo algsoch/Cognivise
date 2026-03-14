@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { useSessionStore } from '../hooks/useSessionStore'
 const C = {
   green:  [80,  250, 80 ],
@@ -121,6 +122,9 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
   const expressionsRef      = useRef({ isSmiling: false, mouthOpen: false, browUp: false })
   const metricsRef          = useRef(metrics)
   const isTypingRef          = useRef(isTyping)
+  const [mpLoaded, setMpLoaded] = useState(false)
+  const [realLandmarksOn, setRealLandmarksOn] = useState(false)
+  const lastRealLandmarksRef = useRef(false)
   metricsRef.current         = metrics
   isTypingRef.current        = isTyping
 
@@ -128,6 +132,8 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
   // The backend EngagementProcessor only gets data if Stream WebRTC video works.
   // We bypass that entirely: browser already has perfect face data, send it direct.
   const sendRaw         = useSessionStore(s => s.sendRaw)
+  const updateMetrics   = useSessionStore(s => s.updateMetrics)
+  const setSignalFreshness = useSessionStore(s => s.setSignalFreshness)
   const sendRawRef      = useRef(null)
   const lastFaceSendRef = useRef(0)
   const blinkTrackRef   = useRef({ earBelow: 0, count: 0, windowStart: Date.now(), rate: 15.0 })
@@ -145,6 +151,7 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
     tongue_visible: false,
   })
   const mouthTrackRef = useRef({ lastOpen: 0, emaMovement: 0 })
+  const poseTrackRef = useRef({ lastPitch: 0, nodEma: 0 })
   sendRawRef.current = sendRaw   // always current without re-running effects
 
   // ── Init MediaPipe ───────────────────────────────────────────────────────
@@ -172,9 +179,11 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
         })
         if (cancelled) { lm.close(); return }
         landmarkerRef.current = lm
+        setMpLoaded(true)
         console.log('[FaceMonitorOverlay] MediaPipe FaceLandmarker ready ✅')
       } catch (err) {
         console.warn('[FaceMonitorOverlay] MediaPipe failed, using mock mode:', err?.message)
+        setMpLoaded(false)
       }
     }
 
@@ -222,6 +231,10 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
         const ts = performance.now()
         const results = landmarker.detectForVideo(videoEl, ts)
         if (results.faceLandmarks?.length > 0) {
+          if (!lastRealLandmarksRef.current) {
+            lastRealLandmarksRef.current = true
+            setRealLandmarksOn(true)
+          }
           const rawLms = results.faceLandmarks[0]  // normalized [0,1] — used for metrics
 
           lastMpLandmarksRef.current = rawLms.map(lm => ({
@@ -236,9 +249,9 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
           const jawOpen = getBS('jawOpen')
           const tongueOut = getBS('tongueOut')
           expressionsRef.current = {
-            isSmiling : Math.max(getBS('mouthSmileLeft'), getBS('mouthSmileRight')) > 0.28,
-            mouthOpen : jawOpen > 0.25,
-            browUp    : Math.max(getBS('browInnerUp'), getBS('browOuterUpLeft'), getBS('browOuterUpRight')) > 0.35,
+            isSmiling : Math.max(getBS('mouthSmileLeft'), getBS('mouthSmileRight')) > 0.45,
+            mouthOpen : jawOpen > 0.35,
+            browUp    : Math.max(getBS('browInnerUp'), getBS('browOuterUpLeft'), getBS('browOuterUpRight')) > 0.6,
           }
 
           const mt = mouthTrackRef.current
@@ -261,7 +274,7 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
             const lIrisX = rawLms[473].x, rIrisX = rawLms[468].x
             const lR = (lIrisX - rawLms[33].x) / (rawLms[133].x - rawLms[33].x + 1e-6)
             const rR = (rIrisX - rawLms[362].x) / (rawLms[263].x - rawLms[362].x + 1e-6)
-            gazeOnScreen = (lR > 0.2 && lR < 0.8) && (rR > 0.2 && rR < 0.8)
+            gazeOnScreen = (lR > 0.1 && lR < 0.9) && (rR > 0.1 && rR < 0.9)
           } catch { /* keep true */ }
 
           // Head pose from nose tip vs eye midpoint
@@ -270,6 +283,17 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
           const faceCy = (lEyeLm.y + rEyeLm.y) / 2
           const headYaw   = nose ? +((nose.x - faceCx) * 200).toFixed(1) : 0
           const headPitch = nose ? +((nose.y - faceCy) * 200).toFixed(1) : 0
+
+          // If head pose is near frontal, prefer on-screen gaze to avoid false "away".
+          if (Math.abs(headYaw) < 9 && Math.abs(headPitch) < 9) {
+            gazeOnScreen = true
+          }
+
+          const pt = poseTrackRef.current
+          const pitchDelta = Math.abs(headPitch - pt.lastPitch)
+          pt.nodEma = (pt.nodEma * 0.7) + (pitchDelta * 0.3)
+          pt.lastPitch = headPitch
+          const noddingLikely = pt.nodEma > 6 && headPitch > 14
 
           faceMetricsRef.current = {
             face_detected : true,
@@ -284,7 +308,30 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
             tongue_score: +tongueOut.toFixed(3),
             tongue_visible: tongueOut > 0.2,
           }
+
+          // Push local MediaPipe result directly so UI doesn't wait for
+          // backend rebroadcast and cannot be stuck in transient no-face.
+          updateMetrics({
+            faceDetected: true,
+            gazeOnScreen,
+            blinkRate: +btr.rate.toFixed(1),
+            headYaw,
+            headPitch,
+            peopleCount: 1,
+            mouthOpenRatio: +jawOpen.toFixed(3),
+            mouthMovement: +mt.emaMovement.toFixed(3),
+            speakingDetected,
+            tongueScore: +tongueOut.toFixed(3),
+            tongueVisible: tongueOut > 0.2,
+            mpLandmarksOn: true,
+            noddingLikely,
+          })
+          setSignalFreshness('faceSignalAt')
         } else {
+          if (lastRealLandmarksRef.current) {
+            lastRealLandmarksRef.current = false
+            setRealLandmarksOn(false)
+          }
           lastMpLandmarksRef.current = null
           faceMetricsRef.current = {
             ...faceMetricsRef.current,
@@ -296,8 +343,26 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
             tongue_score: 0,
             tongue_visible: false,
           }
+
+          updateMetrics({
+            faceDetected: false,
+            gazeOnScreen: false,
+            peopleCount: 0,
+            mouthOpenRatio: 0,
+            mouthMovement: 0,
+            speakingDetected: false,
+            tongueScore: 0,
+            tongueVisible: false,
+            mpLandmarksOn: false,
+            noddingLikely: false,
+          })
+          setSignalFreshness('faceSignalAt')
         }
       } catch {
+        if (lastRealLandmarksRef.current) {
+          lastRealLandmarksRef.current = false
+          setRealLandmarksOn(false)
+        }
         lastMpLandmarksRef.current = null
       }
 
@@ -321,7 +386,7 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
 
     timer = setInterval(runDetection, 200)
     return () => clearInterval(timer)
-  }, [videoRef])
+  }, [videoRef, updateMetrics, setSignalFreshness])
 
   // ── Main render loop (draw only — no detection here) ─────────────────────
   useEffect(() => {
@@ -371,6 +436,7 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
         learnerState       = 'neutral',
         headYaw            = 0,
         headPitch          = 0,
+        noddingLikely      = false,
       } = metricsRef.current
 
       const t = (phaseRef.current += 0.035)
@@ -547,7 +613,7 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
           badge(ctx, '➡ LEANING IN', 6, exprY, rgba(C.purple, 0.9), 'left')
           exprY += 20
         }
-        if (Math.abs(headPitch) > 12 && headPitch > 0) {
+        if (noddingLikely) {
           badge(ctx, '↓ NODDING', 6, exprY, rgba(C.cyan, 0.85), 'left')
         }
         if (!gazeOnScreen) {
@@ -588,7 +654,10 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
       ref={containerRef}
       className="absolute inset-0 w-full h-full pointer-events-none"
     >
-      <canvas ref={canvasRef} className="w-full h-full" />
+      <div className="absolute left-2 top-2 z-10 rounded border border-border/70 bg-black/55 px-2 py-1 text-[10px] font-mono text-white">
+        Real MediaPipe face landmarks: {mpLoaded && realLandmarksOn ? 'ON' : 'OFF'}
+      </div>
+      <canvas id="analysis-canvas" ref={canvasRef} className="w-full h-full" />
     </div>
   )
 }

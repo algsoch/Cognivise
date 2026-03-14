@@ -149,75 +149,98 @@ export function useBackendConnection() {
         if (!mountedRef.current) return
         try {
           const raw = JSON.parse(evt.data)
+          const normalizedRaw = { ...raw }
+
+          // When the frame analyzer emits a transient no-face result, avoid
+          // clobbering a fresh browser overlay face signal.
+          if (normalizedRaw.frame_hash !== undefined && normalizedRaw.face_detected === false) {
+            const now = Date.now()
+            const state = useSessionStore.getState()
+            const overlayFresh = state.signalFreshness.faceSignalAt && (now - state.signalFreshness.faceSignalAt) < 1600
+            if (overlayFresh && state.metrics.faceDetected) {
+              normalizedRaw.face_detected = true
+            }
+          }
 
           // Push metric patch to store
-          const patch = mapMetrics(raw)
+          const patch = mapMetrics(normalizedRaw)
           if (Object.keys(patch).length > 0) updateMetrics(patch)
 
+          // Browser overlay face metrics arrive without frame_hash; track their freshness.
+          if (
+            normalizedRaw.frame_hash === undefined &&
+            (normalizedRaw.mouth_open_ratio !== undefined ||
+             normalizedRaw.speaking_detected !== undefined ||
+             normalizedRaw.tongue_score !== undefined ||
+             normalizedRaw.face_detected !== undefined)
+          ) {
+            setSignalFreshness('faceSignalAt')
+          }
+
           // Store Stream call info when backend sends it
-          if (raw.call_id) setStreamCall(raw.call_id, raw.call_type ?? 'default')
+          if (normalizedRaw.call_id) setStreamCall(normalizedRaw.call_id, normalizedRaw.call_type ?? 'default')
 
           // Sync backend screen-detected topic to the UI
           // Auto-initialize mastery entry so topic shows in tracker immediately
-          if (raw.current_topic) {
-            setTopic(raw.current_topic)
+          if (normalizedRaw.current_topic) {
+            setTopic(normalizedRaw.current_topic)
             const currentMastery = useSessionStore.getState().mastery
-            if (!(raw.current_topic in currentMastery)) {
-              updateMastery(raw.current_topic, 0)
+            if (!(normalizedRaw.current_topic in currentMastery)) {
+              updateMastery(normalizedRaw.current_topic, 0)
             }
           }
 
           // Agent speech: display text + fire browser TTS immediately as fallback
           // (Gemini WebRTC audio is preferred when connected — setGeminiAudioActive suppresses TTS)
-          if (raw.agent_speech) {
+          if (normalizedRaw.agent_speech) {
             // Measure how long AI took to respond (from learner message to AI reply)
             if (_aiTimerStart > 0) {
               const aiMs = Date.now() - _aiTimerStart
               _aiTimerStart = 0
               updateMetrics({ aiResponseMs: aiMs })
             }
-            setAgentSpeech(raw.agent_speech)
+            setAgentSpeech(normalizedRaw.agent_speech)
             setSignalFreshness('agentSpeechAt')
-            browserSpeak(raw.agent_speech)  // instant TTS — no Gemini lag
+            browserSpeak(normalizedRaw.agent_speech)  // instant TTS — no Gemini lag
             // Log to conversation history (deduped below)
-            addConversationEntry('ai', raw.agent_speech, raw.agent_action ?? null)
+            addConversationEntry('ai', normalizedRaw.agent_speech, normalizedRaw.agent_action ?? null)
           }
 
           // Agent transcript: Gemini's actual spoken text. Mirror it into agentSpeech
           // when no explicit agent_speech event is present so UI reflects real output.
-          if (raw.agent_transcript) {
-            setAgentTranscript(raw.agent_transcript)
-            if (!raw.agent_speech) {
-              setAgentSpeech(raw.agent_transcript)
+          if (normalizedRaw.agent_transcript) {
+            setAgentTranscript(normalizedRaw.agent_transcript)
+            if (!normalizedRaw.agent_speech) {
+              setAgentSpeech(normalizedRaw.agent_transcript)
               setSignalFreshness('agentSpeechAt')
             }
           }
 
           // Agent action: what type of intervention just fired (for activity panel)
-          if (raw.agent_action) {
-            setAgentAction({ type: raw.agent_action, topic: raw.agent_action_topic ?? null, timestamp: Date.now() })
+          if (normalizedRaw.agent_action) {
+            setAgentAction({ type: normalizedRaw.agent_action, topic: normalizedRaw.agent_action_topic ?? null, timestamp: Date.now() })
           }
 
           // Learner speech: what the user just said (for activity panel "You said" section)
-          if (raw.learner_speech) {
-            setLearnerSpeech(raw.learner_speech)
+          if (normalizedRaw.learner_speech) {
+            setLearnerSpeech(normalizedRaw.learner_speech)
             setSignalFreshness('learnerSpeechAt')
             // Log to conversation history
-            addConversationEntry('user', raw.learner_speech)
+            addConversationEntry('user', normalizedRaw.learner_speech)
           }
 
-          if (raw.frame_hash !== undefined) {
+          if (normalizedRaw.frame_hash !== undefined) {
             setSignalFreshness('frameAt')
           }
 
           // Mastery updates: { mastery: { "Python": 62.5 } }
-          if (raw.mastery && typeof raw.mastery === 'object') {
-            Object.entries(raw.mastery).forEach(([t, s]) => updateMastery(t, s))
+          if (normalizedRaw.mastery && typeof normalizedRaw.mastery === 'object') {
+            Object.entries(normalizedRaw.mastery).forEach(([t, s]) => updateMastery(t, s))
           }
 
           // topic_mastery_init: backend sends initial mastery score when topic first detected
-          if (raw.topic_mastery_init && typeof raw.topic_mastery_init === 'object') {
-            Object.entries(raw.topic_mastery_init).forEach(([t, s]) => {
+          if (normalizedRaw.topic_mastery_init && typeof normalizedRaw.topic_mastery_init === 'object') {
+            Object.entries(normalizedRaw.topic_mastery_init).forEach(([t, s]) => {
               const currentMastery = useSessionStore.getState().mastery
               if (!(t in currentMastery)) updateMastery(t, s)
             })
@@ -226,15 +249,15 @@ export function useBackendConnection() {
           // Fire intervention when a new one arrives (type changes)
           // Skip null / "none" — those are non-events
           if (
-            raw.intervention_type &&
-            raw.intervention_type !== 'none' &&
-            raw.intervention_type !== 'NONE' &&
-            raw.intervention_type !== lastInterventionRef.current
+            normalizedRaw.intervention_type &&
+            normalizedRaw.intervention_type !== 'none' &&
+            normalizedRaw.intervention_type !== 'NONE' &&
+            normalizedRaw.intervention_type !== lastInterventionRef.current
           ) {
-            lastInterventionRef.current = raw.intervention_type
+            lastInterventionRef.current = normalizedRaw.intervention_type
             addIntervention({
-              type: raw.intervention_type,
-              message: raw.intervention_message ?? `Adaptive: ${raw.intervention_type.replace(/_/g, ' ')}`,
+              type: normalizedRaw.intervention_type,
+              message: normalizedRaw.intervention_message ?? `Adaptive: ${normalizedRaw.intervention_type.replace(/_/g, ' ')}`,
             })
           }
         } catch {

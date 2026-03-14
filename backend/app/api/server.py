@@ -97,6 +97,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def startup_event():
+    from backend.app.db.postgres import init_db
+    try:
+        await init_db()
+        logger.info("FastAPI: initialised database for event loop")
+    except Exception as e:
+        logger.error("Failed to initialize database in FastAPI startup: %s", e)
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -446,21 +454,29 @@ async def analyze_frame(request: Request):
 # ── English Coach (Groq LLaMA) ─────────────────────────────────────────────────
 
 _GROQ_ANALYZE_PROMPT = """\
-You are an expert English communication coach. Analyze the following speech input from a learner.
+You are an expert English communication coach with a warm, encouraging personality. Analyze the following speech input from a learner.
 Return ONLY a valid JSON object (no markdown, no explanation) with this exact structure:
 {{
   "score": <integer 0-100>,
   "tone": "<formal|casual|neutral>",
+    "follow_up_relevance_score": <integer 0-100>,
+    "follow_up_relevance_feedback": "<did the learner answer the previous follow-up question?>",
   "corrections": [
     {{"word": "<original word>", "suggestion": "<better word>", "issue": "<brief explanation>"}}
   ],
   "grammar_notes": ["<note 1>", "<note 2>"],
     "pronunciation_notes": ["<note>"],
     "delivery_notes": ["<note>"],
+    "speaking_style_notes": ["<pace/clarity/expression notes grounded in speech + vision signals>"],
     "focus_feedback": "<how gaze/movement affected communication>",
-  "overall_feedback": "<2-3 sentence constructive paragraph>",
+    "expression_observations": ["<vision-grounded observation 1>", "<vision-grounded observation 2>"],
+    "emotion_inference": "<best-effort emotional signal from voice+vision>",
+  "overall_feedback": "<2-3 sentence constructive paragraph with encouraging tone>",
     "improvement_tip": "<1 specific actionable tip for today>",
-    "action_plan": ["<step 1>", "<step 2>", "<step 3>"]
+        "how_you_should_say_it": "<one strong improved version of learner sentence in natural English>",
+        "next_answer_blueprint": "<short structure learner can use for next follow-up answer>",
+        "action_plan": ["<step 1>", "<step 2>", "<step 3>"],
+    "follow_up_question": "<one specific next speaking prompt based on mistakes + vision>"
 }}
 
 Rules:
@@ -471,9 +487,23 @@ Rules:
 - If speech is perfect, return empty arrays for corrections and grammar_notes.
 - You MUST incorporate the visual context (face/gaze/movement). If the learner is looking away,
   has high movement/restlessness, or no face detected, mention it in feedback and give one concrete fix.
+- You MUST analyze speaking style from available cues (mouth_open_ratio, mouth_movement, speaking_detected,
+    articulation_score, blink/head movement cues, audio_duration_sec, speech_rate_wpm,
+    avg_volume_rms, pause_ratio). Use this in speaking_style_notes.
+- If previous_follow_up_question is present, treat the learner input as an answer to that question and evaluate
+    relevance/completeness before giving the next follow-up.
+- follow_up_relevance_score must be strict and evidence-based: 0 means unrelated answer, 100 means fully answered.
+- how_you_should_say_it must be concrete, specific, and non-generic (one polished sentence/mini-answer).
+- next_answer_blueprint must be a compact template with 2-3 parts (e.g., context -> challenge -> outcome).
+- expression_observations must reference visual evidence from metrics (gaze, mouth movement, head pose, speaking_detected).
+- follow_up_question must be a concrete speaking question that directly targets detected weakness.
+- Avoid generic advice. If visual metrics exist, include at least two vision-grounded details.
 - action_plan must contain exactly 3 items.
+- Be encouraging and emotional in feedback, like a real coach: use phrases like "Great job!", "I noticed...", "Let's work on...", "You're doing well, but...".
 
 Visual context: {vision_context}
+Conversation context: {conversation_context}
+Speaking style context: {speaking_style_context}
 Learner said: "{transcript}"
 """
 
@@ -484,19 +514,35 @@ Return ONLY valid JSON (no markdown):
 {{
   "score": <integer 0-100>,
   "tone": "<formal|casual|neutral>",
+    "follow_up_relevance_score": <integer 0-100>,
+    "follow_up_relevance_feedback": "<did the learner answer the previous follow-up question?>",
   "corrections": [
     {{"word": "<problematic word>", "suggestion": "<correct form>", "issue": "<explanation>"}}
   ],
   "grammar_notes": ["<note>"],
     "pronunciation_notes": ["<note>"],
     "delivery_notes": ["<note>"],
+    "speaking_style_notes": ["<pace/clarity/expression notes grounded in speech + vision signals>"],
     "focus_feedback": "<how gaze/movement affected communication>",
+    "expression_observations": ["<vision-grounded observation 1>", "<vision-grounded observation 2>"],
+    "emotion_inference": "<best-effort emotional signal from voice+vision>",
   "overall_feedback": "<2-3 sentence evaluation of clarity and fluency>",
     "improvement_tip": "<specific pronunciation or fluency tip>",
-    "action_plan": ["<step 1>", "<step 2>", "<step 3>"]
+        "how_you_should_say_it": "<one strong improved version of learner sentence in natural English>",
+        "next_answer_blueprint": "<short structure learner can use for next follow-up answer>",
+        "action_plan": ["<step 1>", "<step 2>", "<step 3>"],
+    "follow_up_question": "<one specific next speaking prompt based on mistakes + vision>"
 }}
 
+Rules:
+- Use visual metrics explicitly when available.
+- If previous_follow_up_question is present, evaluate whether learner answer addresses it.
+- follow_up_relevance_score must reflect how directly learner answered the prior follow-up.
+- follow_up_question must be short and directly actionable.
+
 Visual context: {vision_context}
+Conversation context: {conversation_context}
+Speaking style context: {speaking_style_context}
 Learner said: "{transcript}"
 """
 
@@ -528,7 +574,10 @@ async def english_coach_analyze(request: Request):
         body = await request.json()
         transcript = (body.get("transcript") or "").strip()
         mode       = body.get("mode", "analyze")
+        level      = (body.get("level") or "intermediate").strip().lower()
         face_metrics = body.get("face_metrics") if isinstance(body.get("face_metrics"), dict) else {}
+        conversation_context = body.get("conversation_context") if isinstance(body.get("conversation_context"), dict) else {}
+        speaking_style_context = body.get("speaking_style_context") if isinstance(body.get("speaking_style_context"), dict) else {}
         if not transcript:
             return {"ok": False, "error": "transcript is required"}
 
@@ -553,6 +602,32 @@ async def english_coach_analyze(request: Request):
         else:
             vision_context = "No visual metrics available"
 
+        if conversation_context:
+            conversation_context_text = (
+                f"previous_follow_up_question={conversation_context.get('previous_follow_up_question')}, "
+                f"follow_up_answer_expected={conversation_context.get('follow_up_answer_expected')}, "
+                f"previous_ai_message={conversation_context.get('previous_ai_message')}, "
+                f"recent_turns={conversation_context.get('recent_turns')}"
+            )
+        else:
+            conversation_context_text = "No conversation context available"
+
+        if speaking_style_context:
+            speaking_style_context_text = (
+                f"articulation_score={speaking_style_context.get('articulation_score')}, "
+                f"mouth_open_ratio={speaking_style_context.get('mouth_open_ratio')}, "
+                f"mouth_movement={speaking_style_context.get('mouth_movement')}, "
+                f"speaking_detected={speaking_style_context.get('speaking_detected')}, "
+                f"tongue_score={speaking_style_context.get('tongue_score')}, "
+                f"blink_rate={speaking_style_context.get('blink_rate')}, "
+                f"audio_duration_sec={speaking_style_context.get('audio_duration_sec')}, "
+                f"avg_volume_rms={speaking_style_context.get('avg_volume_rms')}, "
+                f"speech_rate_wpm={speaking_style_context.get('speech_rate_wpm')}, "
+                f"pause_ratio={speaking_style_context.get('pause_ratio')}"
+            )
+        else:
+            speaking_style_context_text = "No speaking style context available"
+
         if not settings.groq_api_key:
             result = {
                 "score": 65,
@@ -569,9 +644,31 @@ async def english_coach_analyze(request: Request):
             }
         else:
             if mode == "repeat":
-                prompt = _GROQ_REPEAT_PROMPT.format(transcript=transcript, vision_context=vision_context)
+                prompt = _GROQ_REPEAT_PROMPT.format(
+                    transcript=transcript,
+                    vision_context=vision_context,
+                    conversation_context=conversation_context_text,
+                    speaking_style_context=speaking_style_context_text,
+                )
             else:
-                prompt = _GROQ_ANALYZE_PROMPT.format(transcript=transcript, vision_context=vision_context)
+                prompt = _GROQ_ANALYZE_PROMPT.format(
+                    transcript=transcript,
+                    vision_context=vision_context,
+                    conversation_context=conversation_context_text,
+                    speaking_style_context=speaking_style_context_text,
+                )
+
+            level_instruction = (
+                "Adjust feedback depth by learner level: "
+                f"{level}. Beginner => simpler wording and short corrections. "
+                "Intermediate => balanced detail and examples. "
+                "Advanced => stricter fluency/precision expectations and nuanced speaking style remarks."
+            )
+
+            if mode == "analyze":
+                level_instruction += " For free speech mode, provide engaging follow-up questions to continue the conversation naturally."
+
+            prompt = f"{prompt}\n\n{level_instruction}"
             client = Groq(api_key=settings.groq_api_key)
             response = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
@@ -593,8 +690,19 @@ async def english_coach_analyze(request: Request):
         result.setdefault("grammar_notes", [])
         result.setdefault("pronunciation_notes", [])
         result.setdefault("delivery_notes", [])
+        result.setdefault("speaking_style_notes", [])
+        result.setdefault("follow_up_relevance_score", 50)
+        result.setdefault("follow_up_relevance_feedback", "No follow-up relation data available.")
         result.setdefault("focus_feedback", "")
+        result.setdefault("expression_observations", [])
+        result.setdefault("emotion_inference", "")
+        result.setdefault("how_you_should_say_it", "")
+        result.setdefault("next_answer_blueprint", "")
         result.setdefault("action_plan", [])
+        result.setdefault("follow_up_question", "")
+
+        if mode == "analyze":
+            pass  # Allow follow-up questions in free speech
 
         result["ok"] = True
         result["vision_used"] = bool(face_metrics)
@@ -657,6 +765,100 @@ async def english_coach_sentence(request: Request):
     except Exception as exc:
         logger.error("English coach sentence error: %s", exc)
         return {"ok": False, "sentence": "Please describe your daily morning routine in detail.", "error": str(exc)}
+
+
+@app.post("/api/speech-archive/save")
+async def save_speech_archive(request: Request):
+    """
+    Save a speech archive entry to PostgreSQL.
+    Body: {
+        "user_id": str,
+        "transcript": str,
+        "score": float,
+        "tone": str,
+        "follow_up_relevance_score": float,
+        "how_you_should_say_it": str,
+        "overall_feedback": str,
+        "speaking_style_notes": list,
+        "audio_data_url": str,
+        "video_data_url": str,
+        "audio_features": dict
+    }
+    """
+    try:
+        from backend.app.db.postgres import get_async_session_factory, SpeechArchiveRecord
+        from sqlalchemy import insert
+
+        body = await request.json()
+        user_id = body.get("user_id", "anonymous")
+        
+        async_session_factory = get_async_session_factory()
+        async with async_session_factory() as session:
+            stmt = insert(SpeechArchiveRecord).values(
+                user_id=user_id,
+                transcript=body.get("transcript"),
+                score=body.get("score"),
+                tone=body.get("tone"),
+                follow_up_relevance_score=body.get("follow_up_relevance_score"),
+                how_you_should_say_it=body.get("how_you_should_say_it"),
+                overall_feedback=body.get("overall_feedback"),
+                speaking_style_notes=body.get("speaking_style_notes", []),
+                audio_data_url=body.get("audio_data_url"),
+                video_data_url=body.get("video_data_url"),
+                analysis_video_data_url=body.get("analysis_video_data_url"),
+                audio_features=body.get("audio_features")
+            )
+            await session.execute(stmt)
+            await session.commit()
+            
+        return {"ok": True}
+    except Exception as exc:
+        logger.error("Save speech archive error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
+@app.get("/api/speech-archive/load")
+async def load_speech_archive(user_id: str = "anonymous", limit: int = 20):
+    """
+    Load speech archive entries from PostgreSQL.
+    Query params: user_id, limit
+    """
+    try:
+        from backend.app.db.postgres import get_async_session_factory, SpeechArchiveRecord
+        from sqlalchemy import select, desc
+
+        async_session_factory = get_async_session_factory()
+        async with async_session_factory() as session:
+            stmt = select(SpeechArchiveRecord).where(
+                SpeechArchiveRecord.user_id == user_id
+            ).order_by(desc(SpeechArchiveRecord.timestamp)).limit(limit)
+            
+            result = await session.execute(stmt)
+            records = result.scalars().all()
+            
+            # Convert to the format expected by frontend
+            archive = []
+            for record in records:
+                archive.append({
+                    "id": str(record.id),
+                    "ts": int(record.timestamp.timestamp() * 1000),  # Convert to milliseconds
+                    "transcript": record.transcript,
+                    "score": record.score,
+                    "tone": record.tone,
+                    "follow_up_relevance_score": record.follow_up_relevance_score,
+                    "how_you_should_say_it": record.how_you_should_say_it,
+                    "overall_feedback": record.overall_feedback,
+                    "speaking_style_notes": record.speaking_style_notes or [],
+                    "audio_data_url": record.audio_data_url,
+                    "video_data_url": record.video_data_url,
+                    "analysis_video_data_url": record.analysis_video_data_url,
+                    "audio_features": record.audio_features
+                })
+            
+        return {"ok": True, "archive": archive}
+    except Exception as exc:
+        logger.error("Load speech archive error: %s", exc)
+        return {"ok": False, "error": str(exc), "archive": []}
 
 
 # ── Server runner ─────────────────────────────────────────────────────────────

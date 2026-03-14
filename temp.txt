@@ -1,0 +1,120 @@
+                  <ul className="space-y-1 text-text-primary">
+                    {noFaceReasons.map((reason, idx) => (
+                      <li key={idx}>- {reason}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="bg-muted/30 rounded px-2 py-1.5 border border-border/40">
+                  <div className="text-text-muted mb-1">Vision SDK input and output (live)</div>
+                  <div className="grid grid-cols-1 gap-1 font-mono text-[11px] text-text-primary">
+                    <div>input.camera: {cameraEnabled ? 'on' : 'off'}</div>
+                    <div>input.frame_fps: {metrics.frameFps || 0}</div>
+                    <div>input.landmarks: {effectiveFaceDetected ? 'detected' : 'not-detected'}</div>
+                    <div>input.real_mediapipe_landmarks: {metrics.mpLandmarksOn ? 'ON' : 'OFF'}</div>
+                    <div>output.face_detected: {effectiveFaceDetected ? 'true' : 'false'}</div>
+                    <div>output.gaze_on_screen: {metrics.gazeOnScreen ? 'true' : 'false'}</div>
+                    <div>output.gaze_direction: {effectiveGazeDirection}</div>
+                    <div>output.head_yaw: {Number(metrics.headYaw || 0).toFixed(1)}</div>
+                    <div>output.head_pitch: {Number(metrics.headPitch || 0).toFixed(1)}</div>
+                    <div>output.nodding_likely: {metrics.noddingLikely ? 'true' : 'false'}</div>
+                    <div>output.mouth_open_ratio: {Number(metrics.mouthOpenRatio || 0).toFixed(3)}</div>
+                    <div>output.speaking_detected: {metrics.speakingDetected ? 'true' : 'false'}</div>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-2 text-xs">
+                <div className="bg-muted/30 rounded px-2 py-1.5 border border-border/40">
+                  <div className="text-text-muted mb-1">Last vision metrics sent to Groq</div>
+                  <pre className="text-[11px] text-text-primary font-mono whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                    {JSON.stringify(lastVisionPayload ?? { note: 'No request yet' }, null, 2)}
+                  </pre>
+                </div>
+                <div className="bg-muted/30 rounded px-2 py-1.5 border border-border/40">
+                  <div className="text-text-muted mb-1">Last transcript payload sent</div>
+                  <pre className="text-[11px] text-text-primary font-mono whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                    {JSON.stringify(lastTranscriptPayload ?? { note: 'No request yet' }, null, 2)}
+                  </pre>
+                </div>
+                <div className="bg-muted/30 rounded px-2 py-1.5 border border-border/40">
+                  <div className="text-text-muted mb-1">Last Groq response summary</div>
+                  <pre className="text-[11px] text-text-primary font-mono whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                    {JSON.stringify(lastGroqResponseSummary ?? { note: 'No response yet' }, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            </div>
+        </div>
+        )}
+
+        <div className="bg-surface/50 border border-border rounded-xl p-3">
+          <div className="text-xs text-text-muted uppercase tracking-wide font-medium">Past recorded analyses</div>
+          {recordArchive.length === 0 ? (
+            <div className="mt-2 text-xs text-text-muted">No past record analysis yet. Your spoken answers will appear here with playback and score.</div>
+          ) : (
+            <div className="mt-2 space-y-2 max-h-[360px] overflow-y-auto pr-1">
+              {recordArchive
+                .filter((item) => item.tone !== 'ai') // Filter out old AI-only entries
+                .map((item) => (
+                <div key={item.id} className="bg-muted/20 border border-border/50 rounded-lg p-2 text-xs">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-text-primary font-medium">Score {item.score ?? '--'}</span>
+                    <span className="text-text-muted font-mono">{new Date(item.ts).toLocaleTimeString()}</span>
+                  </div>
+                  <div className="text-text-secondary mb-1 line-clamp-2">"{item.transcript}"</div>
+                  {item.video_data_url && <video controls src={item.video_data_url} className="w-full mb-1 rounded border border-border/50 bg-black/40" />}
+                  {item.audio_data_url && <audio controls src={item.audio_data_url} className="w-full mb-1" />}
+                  {item.how_you_should_say_it && (
+                    <button
+                      onClick={() => speakText(item.how_you_should_say_it)}
+                      className="w-full mb-1 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/50 rounded px-2 py-1 text-xs text-emerald-200 flex items-center justify-center gap-1"
+                    >
+                      🔊 Play AI Suggestion
+                    </button>
+                  )}
+                  <div className="grid grid-cols-2 gap-1 mb-1">
+                    <div className="bg-surface/60 rounded px-1.5 py-1">Rate <span className="font-mono text-text-primary">{item.audio_features?.speech_rate_wpm ?? '--'} wpm</span></div>
+                    <div className="bg-surface/60 rounded px-1.5 py-1">Pause <span className="font-mono text-text-primary">{item.audio_features?.pause_ratio ?? '--'}</span></div>
+                    <div className="bg-surface/60 rounded px-1.5 py-1">Duration <span className="font-mono text-text-primary">{item.audio_features?.duration_sec ?? '--'}s</span></div>
+                    <div className="bg-surface/60 rounded px-1.5 py-1">Relation <span className="font-mono text-text-primary">{item.follow_up_relevance_score ?? '--'}/100</span></div>
+                  </div>
+                  {item.how_you_should_say_it && (
+                    <div className="text-[11px] text-text-secondary"><span className="text-text-primary">Say it better:</span> {item.how_you_should_say_it}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        </div>
+        </div>
+
+        {showInspector && (
+          <div className="bg-surface/60 border border-border rounded-xl p-4 space-y-3 text-xs">
+            <div className="font-mono uppercase tracking-wide text-text-muted">What is monitored and how</div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-muted/30 rounded px-2 py-1.5">Frame freshness: <span className="text-text-primary font-mono">{Number.isFinite(signalHealth.frameAgeMs) ? `${Math.round(signalHealth.frameAgeMs / 1000)}s` : '--'}</span></div>
+              <div className="bg-muted/30 rounded px-2 py-1.5">Speech-video sync: <span className="text-text-primary font-mono">{signalHealth.speechSyncScore}%</span></div>
+              <div className="bg-muted/30 rounded px-2 py-1.5">Mouth open: <span className="text-text-primary font-mono">{Number(metrics.mouthOpenRatio || 0).toFixed(2)}</span></div>
+              <div className="bg-muted/30 rounded px-2 py-1.5">Tongue score: <span className="text-text-primary font-mono">{Number(metrics.tongueScore || 0).toFixed(2)}</span></div>
+              <div className="bg-muted/30 rounded px-2 py-1.5">Speaking detected: <span className="text-text-primary">{metrics.speakingDetected ? 'yes' : 'no'}</span></div>
+              <div className="bg-muted/30 rounded px-2 py-1.5">Model action: <span className="text-text-primary">Groq scores using live vision context</span></div>
+            </div>
+            <div className="text-text-secondary leading-relaxed">
+              Pipeline: Browser camera frame to backend frame analysis to live monitoring state to Groq feedback prompt context.
+              If frame freshness is stale or camera is not live, coaching analysis is blocked for quality.
+            </div>
+            <div className="rounded-lg overflow-hidden border border-border bg-black/40 aspect-video flex items-center justify-center">
+              {monitoredFrame ? (
+                <img src={monitoredFrame} alt="Inspector analyzed frame" className="w-full h-full object-contain bg-black" />
+              ) : (
+                <span className="text-xs text-text-muted">No analyzed frame in inspector yet</span>
+              )}
+            </div>
+            <div className="bg-surface/50 border border-border rounded-lg p-2">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-text-muted mb-1">Frame timeline scrub</div>
+              <input
+                type="range"
+                min={0}
+                max={Math.max(0, frameHistory.length - 1)}
+                value={Math.min(frameCursor, Math.max(0, frameHistory.length - 1))}
+                onChange={(e) => setFrameCursor(Number(e.target.value))}
