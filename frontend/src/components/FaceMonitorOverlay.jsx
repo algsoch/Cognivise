@@ -122,11 +122,15 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
   const expressionsRef      = useRef({ isSmiling: false, mouthOpen: false, browUp: false })
   const metricsRef          = useRef(metrics)
   const isTypingRef          = useRef(isTyping)
+  const drawVideoRef = useRef(drawVideoLayer)
+  const showHUDRef = useRef(showHUD)
   const [mpLoaded, setMpLoaded] = useState(false)
   const [realLandmarksOn, setRealLandmarksOn] = useState(false)
   const lastRealLandmarksRef = useRef(false)
   metricsRef.current         = metrics
   isTypingRef.current        = isTyping
+  drawVideoRef.current = drawVideoLayer
+  showHUDRef.current = showHUD
 
   // ── Face metrics → backend (browser MediaPipe → WS → reasoning loop) ────
   // The backend EngagementProcessor only gets data if Stream WebRTC video works.
@@ -443,7 +447,7 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
       ctx.clearRect(0, 0, W, H)
 
       // Draw the raw video frame on the canvas so it gets included in the captureStream
-      if (drawVideoLayer && videoRef?.current && videoRef.current.readyState >= 2) {
+      if (drawVideoRef.current && videoRef?.current && videoRef.current.readyState >= 2) {
         const vel = videoRef.current
         const r = getVideoRenderRect(vel, W, H)
         ctx.save()
@@ -598,7 +602,7 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
       }
 
       // ── HUD badges ───────────────────────────────────────────────────
-      if (showHUD) {
+      if (showHUDRef.current) {
         const attCol = attentionScore >= 65
           ? rgba(C.green, 0.95)
           : attentionScore >= 35 ? rgba(C.amber, 0.95) : rgba(C.red, 0.95)
