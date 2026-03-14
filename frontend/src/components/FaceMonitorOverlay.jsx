@@ -111,7 +111,7 @@ function drawTesselation(ctx, landmarks, alpha = 0.12) {
   ctx.restore()
 }
 
-export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = false }) {
+export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = false, drawVideoLayer = true }) {
   const containerRef  = useRef(null)
   const canvasRef     = useRef(null)
   const rafRef        = useRef(null)
@@ -441,6 +441,16 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
 
       const t = (phaseRef.current += 0.035)
       ctx.clearRect(0, 0, W, H)
+
+      // Draw the raw video frame on the canvas so it gets included in the captureStream
+      if (drawVideoLayer && videoRef?.current && videoRef.current.readyState >= 2) {
+        const vel = videoRef.current
+        const r = getVideoRenderRect(vel, W, H)
+        ctx.save()
+        // If we want it slightly dimmed under the mesh, could do ctx.filter = 'brightness(0.9)'. Let's leave it Normal.
+        ctx.drawImage(vel, r.ox, r.oy, r.rw, r.rh)
+        ctx.restore()
+      }
 
       // Cached landmarks from the separate detection interval (no detection here)
       const lastMpLandmarks = lastMpLandmarksRef.current

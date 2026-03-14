@@ -1872,12 +1872,18 @@ export default function EnglishCoachPage() {
                   playsInline
                   className={`w-full h-full object-contain bg-black ${visualMode === 'landmarks' ? 'opacity-0' : 'opacity-100'}`}
                 />
-                {visualMode !== 'raw' && <FaceMonitorOverlay videoRef={topPreviewRef} metrics={metrics} />}
+                {visualMode !== 'raw' && <FaceMonitorOverlay videoRef={topPreviewRef} metrics={metrics} drawVideoLayer={visualMode !== 'landmarks'} />}
               </div>
 
-              <div className="rounded-lg overflow-hidden border border-border bg-black/40 aspect-video flex items-center justify-center">
+              <div className="rounded-lg overflow-hidden border border-border bg-black/40 aspect-video flex items-center justify-center relative">
                 {monitoredFrame ? (
-                  <img src={monitoredFrame} alt="Last analyzed frame" className="w-full h-full object-contain bg-black" />
+                  <>
+                    <img src={monitoredFrame} alt="Last analyzed frame" className="w-full h-full object-cover opacity-60 bg-black" />
+                    <div className="absolute top-2 right-2 bg-emerald-500/90 text-white text-[10px] font-bold px-2 py-1 rounded shadow-sm border border-emerald-400 z-10 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                      ANALYZED FRAME
+                    </div>
+                  </>
                 ) : (
                   <span className="text-xs text-text-muted">No analyzed frame yet</span>
                 )}
