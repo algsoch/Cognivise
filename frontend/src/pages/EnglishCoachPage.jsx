@@ -1880,10 +1880,10 @@ export default function EnglishCoachPage() {
                 />
                 {visualMode !== 'raw' && <FaceMonitorOverlay videoRef={topPreviewRef} metrics={metrics} drawVideoLayer={visualMode !== 'landmarks'} showHUD={visualMode === 'full'} />}
                 
-                {/* Vision AI Watching Tag Overlay - Top Center so it avoids metrics */}
+                {/* Vision AI Watching Tag Overlay - Bottom Center */}
                 {metrics.faceDetected && (
-                  <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-blue-500/90 text-white text-[10px] font-bold px-4 py-1 rounded-full shadow-lg border border-blue-400 z-10 flex items-center gap-2 pointer-events-none">
-                    <span className="w-2 h-2 rounded-full bg-white animate-pulse"></span>
+                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-blue-500/80 text-white text-[9px] font-semibold px-2.5 py-0.5 rounded-full shadow-md border border-blue-400 z-10 flex items-center gap-1.5 pointer-events-none">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
                     VISION AI WATCHING
                   </div>
                 )}
