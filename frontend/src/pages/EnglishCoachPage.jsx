@@ -1856,6 +1856,12 @@ export default function EnglishCoachPage() {
               Landmarks only
             </button>
             <button
+              onClick={() => setVisualMode('full')}
+              className={`text-[11px] px-2 py-1 rounded border ${visualMode === 'full' ? 'border-pulse/50 bg-pulse/10 text-pulse' : 'border-border text-text-muted'}`}
+            >
+              Full Analysis overlay
+            </button>
+            <button
               onClick={() => setVisualMode('raw')}
               className={`text-[11px] px-2 py-1 rounded border ${visualMode === 'raw' ? 'border-pulse/50 bg-pulse/10 text-pulse' : 'border-border text-text-muted'}`}
             >
@@ -1873,6 +1879,14 @@ export default function EnglishCoachPage() {
                   className={`w-full h-full object-contain bg-black ${visualMode === 'landmarks' ? 'opacity-0' : 'opacity-100'}`}
                 />
                 {visualMode !== 'raw' && <FaceMonitorOverlay videoRef={topPreviewRef} metrics={metrics} drawVideoLayer={visualMode !== 'landmarks'} />}
+                
+                {/* Vision AI Watching Tag Overlay - Top Center so it avoids metrics */}
+                {metrics.faceDetected && (
+                  <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-blue-500/90 text-white text-[10px] font-bold px-4 py-1 rounded-full shadow-lg border border-blue-400 z-10 flex items-center gap-2 pointer-events-none">
+                    <span className="w-2 h-2 rounded-full bg-white animate-pulse"></span>
+                    VISION AI WATCHING
+                  </div>
+                )}
               </div>
 
               <div className="rounded-lg overflow-hidden border border-border bg-black/40 aspect-video flex items-center justify-center relative">
