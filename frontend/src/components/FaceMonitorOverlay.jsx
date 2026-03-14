@@ -111,7 +111,7 @@ function drawTesselation(ctx, landmarks, alpha = 0.12) {
   ctx.restore()
 }
 
-export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = false, drawVideoLayer = true }) {
+export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = false, drawVideoLayer = true, showHUD = true }) {
   const containerRef  = useRef(null)
   const canvasRef     = useRef(null)
   const rafRef        = useRef(null)
@@ -598,54 +598,56 @@ export default function FaceMonitorOverlay({ videoRef, metrics = {}, isTyping = 
       }
 
       // ── HUD badges ───────────────────────────────────────────────────
-      const attCol = attentionScore >= 65
-        ? rgba(C.green, 0.95)
-        : attentionScore >= 35 ? rgba(C.amber, 0.95) : rgba(C.red, 0.95)
-      badge(ctx, `ATT ${Math.round(attentionScore)}%`, 6, 22, attCol, 'left')
-      badge(ctx, `${Number(blinkRate).toFixed(1)} b/m`, W - 6, 22, rgba(C.cyan, 0.9), 'right')
+      if (showHUD) {
+        const attCol = attentionScore >= 65
+          ? rgba(C.green, 0.95)
+          : attentionScore >= 35 ? rgba(C.amber, 0.95) : rgba(C.red, 0.95)
+        badge(ctx, `ATT ${Math.round(attentionScore)}%`, 6, 22, attCol, 'left')
+        badge(ctx, `${Number(blinkRate).toFixed(1)} b/m`, W - 6, 22, rgba(C.cyan, 0.9), 'right')
 
-      // ── Real-time expression / behaviour badges ──────────────────────
-      if (hasRealFace) {
-        let exprY = 42
-        if (isSmiling) {
-          badge(ctx, '😊 SMILING', 6, exprY, rgba(C.green, 0.95), 'left')
-          exprY += 20
+        // ── Real-time expression / behaviour badges ──────────────────────
+        if (hasRealFace) {
+          let exprY = 42
+          if (isSmiling) {
+            badge(ctx, '😊 SMILING', 6, exprY, rgba(C.green, 0.95), 'left')
+            exprY += 20
+          }
+          if (mouthOpen && !isSmiling) {
+            badge(ctx, '💬 SPEAKING', 6, exprY, rgba(C.cyan, 0.9), 'left')
+            exprY += 20
+          }
+          if (browUp) {
+            badge(ctx, '🤔 CURIOUS', 6, exprY, rgba(C.amber, 0.9), 'left')
+            exprY += 20
+          }
+          if (isLeaningIn) {
+            badge(ctx, '➡ LEANING IN', 6, exprY, rgba(C.purple, 0.9), 'left')
+            exprY += 20
+          }
+          if (noddingLikely) {
+            badge(ctx, '↓ NODDING', 6, exprY, rgba(C.cyan, 0.85), 'left')
+          }
+          if (!gazeOnScreen) {
+            badge(ctx, '👁 LOOKING AWAY', W - 6, 42, rgba(C.amber, 0.95), 'right')
+          } else {
+            badge(ctx, '✓ LOOKING AT SCREEN', W - 6, 42, rgba(C.green, 0.85), 'right')
+          }
         }
-        if (mouthOpen && !isSmiling) {
-          badge(ctx, '💬 SPEAKING', 6, exprY, rgba(C.cyan, 0.9), 'left')
-          exprY += 20
+        if (isTypingNow) {
+          badge(ctx, '⌨ TYPING', W - 6, hasRealFace ? 64 : 42, rgba(C.purple, 0.95), 'right')
         }
-        if (browUp) {
-          badge(ctx, '🤔 CURIOUS', 6, exprY, rgba(C.amber, 0.9), 'left')
-          exprY += 20
-        }
-        if (isLeaningIn) {
-          badge(ctx, '➡ LEANING IN', 6, exprY, rgba(C.purple, 0.9), 'left')
-          exprY += 20
-        }
-        if (noddingLikely) {
-          badge(ctx, '↓ NODDING', 6, exprY, rgba(C.cyan, 0.85), 'left')
-        }
-        if (!gazeOnScreen) {
-          badge(ctx, '👁 LOOKING AWAY', W - 6, 42, rgba(C.amber, 0.95), 'right')
-        } else {
-          badge(ctx, '✓ LOOKING AT SCREEN', W - 6, 42, rgba(C.green, 0.85), 'right')
-        }
-      }
-      if (isTypingNow) {
-        badge(ctx, '⌨ TYPING', W - 6, hasRealFace ? 64 : 42, rgba(C.purple, 0.95), 'right')
-      }
 
-      if (learnerState && learnerState !== 'neutral') {
-        const sCol =
-          learnerState === 'focused'    ? rgba(C.green,  0.95) :
-          learnerState === 'mastering'  ? rgba(C.cyan,   0.95) :
-          learnerState === 'distracted' ? rgba(C.amber,  0.95) :
-          rgba(C.red, 0.95)
-        badge(ctx, learnerState.toUpperCase(), 6, H - 4, sCol, 'left')
+        if (learnerState && learnerState !== 'neutral') {
+          const sCol =
+            learnerState === 'focused'    ? rgba(C.green,  0.95) :
+            learnerState === 'mastering'  ? rgba(C.cyan,   0.95) :
+            learnerState === 'distracted' ? rgba(C.amber,  0.95) :
+            rgba(C.red, 0.95)
+          badge(ctx, learnerState.toUpperCase(), 6, H - 4, sCol, 'left')
+        }
+        badge(ctx, hasRealFace ? '● FACE' : '○ SEARCHING', W - 6, H - 4,
+          hasRealFace ? rgba(C.green, 0.9) : rgba(C.red, 0.7), 'right')
       }
-      badge(ctx, hasRealFace ? '● FACE' : '○ SEARCHING', W - 6, H - 4,
-        hasRealFace ? rgba(C.green, 0.9) : rgba(C.red, 0.7), 'right')
 
       // MediaPipe loaded indicator (top right tiny)
       if (landmarkerRef.current) {

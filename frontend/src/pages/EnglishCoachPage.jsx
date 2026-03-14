@@ -1878,7 +1878,7 @@ export default function EnglishCoachPage() {
                   playsInline
                   className={`w-full h-full object-contain bg-black ${visualMode === 'landmarks' ? 'opacity-0' : 'opacity-100'}`}
                 />
-                {visualMode !== 'raw' && <FaceMonitorOverlay videoRef={topPreviewRef} metrics={metrics} drawVideoLayer={visualMode !== 'landmarks'} />}
+                {visualMode !== 'raw' && <FaceMonitorOverlay videoRef={topPreviewRef} metrics={metrics} drawVideoLayer={visualMode !== 'landmarks'} showHUD={visualMode === 'full'} />}
                 
                 {/* Vision AI Watching Tag Overlay - Top Center so it avoids metrics */}
                 {metrics.faceDetected && (
